@@ -111,57 +111,63 @@ void ReadSCLHeader(SCLHeader* pHeader) {
 
 void PrintSCLHeader(SCLHeader* pHeader, const char* name) {
 	std::ofstream off_file;
-	off_file.open(std::string(name) + ".nut", std::ios::out);
-	off_file << "header <- {\n" <<
-	"	TexInit <- \"TEXINIT\"\n" <<
-	"	SCL1 <- [";
+	off_file.open(std::string(name) + ".json", std::ios::out);
+	off_file << "{\n" <<
+	"	\"TexInit\" : \"TEXINIT\",\n" <<
+	"	\"SCL1\" : [";
 	for (int i = 0; i <= pHeader->NumLv1SCL - 1; i++) {
 		off_file << "\"LVL1PROC_" << std::to_string(i)  << "\"";
 		if (i < pHeader->NumLv1SCL - 1) off_file << ", ";
 	}
-	off_file << "]\n" <<
-	"	SCL2 <- [";
+	off_file << "],\n" <<
+	"	\"SCL2\" : [";
 	for (int i = 0; i <= pHeader->NumLv2SCL - 1; i++) {
 		off_file << "\"LVL2PROC_" << std::to_string(i) << "\"";
 		if (i < pHeader->NumLv2SCL - 1) off_file << ", ";
 	}
-	off_file << "]\n" <<
-	"	SCL3 <- [";
+	off_file << "],\n" <<
+	"	\"SCL3\" : [";
 	for (int i = 0; i <= pHeader->NumLv3SCL - 1; i++) {
 		off_file << "\"LVL3PROC_" << std::to_string(i) << "\"";
 		if (i < pHeader->NumLv3SCL - 1) off_file << ", ";
 	}
-	off_file << "]\n" <<
-	"	SCL4 <- [";
+	off_file << "],\n" <<
+	"	\"SCL4\" : [";
 	for (int i = 0; i <= pHeader->NumLv4SCL - 1; i++) {
 		off_file << "\"LVL4PROC_" << std::to_string(i) << "\"";
 		if (i < pHeader->NumLv4SCL - 1) off_file << ", ";
 	}
-	off_file << "]\n";
+	off_file << "],\n";
 
 
-	for (int i = 0; i < 9; i++) {
+	for (int i = 0; i <= 8; i++) {
 		const std::string& charname = ID2String(i);
-		off_file << "	" << charname << " <- {\n" <<
-			"		Boss <- \"" << charname << "_BOSS\"\n" <<
-			"		Combo <- \"" << charname + "_COMBO\"\n" <<
-			"		Atk1 <- \"" << charname + "_ATK1\"\n" <<
-			"		Atk2 <- \"" << charname + "_ATK2\"\n" <<
-			"		Anm1 <- \"" << charname + "_ANM1\"\n" <<
-			"		Anm2 <- \"" << charname + "_ANM2\"\n" <<
-			"		BossAnm <- \"" << charname + "_BOSSANM\"\n" <<
-			"		WinAnm <- \"" << charname + "_WINANM\"\n";
+		off_file << "	\"" << charname << "\" : {\n" <<
+			"		\"Boss\" : \"" << charname << "_BOSS\",\n" <<
+			"		\"Combo\" : \"" << charname + "_COMBO\",\n" <<
+			"		\"Atk1\" : \"" << charname + "_ATK1\",\n" <<
+			"		\"Atk2\" : \"" << charname + "_ATK2\",\n" <<
+			"		\"Anm1\" : \"" << charname + "_ANM1\",\n" <<
+			"		\"Anm2\" : \"" << charname + "_ANM2\",\n" <<
+			"		\"BossAnm\" : \"" << charname + "_BOSSANM\",\n" <<
+			"		\"WinAnm\" : \"" << charname + "_WINANM\",\n";
 		size_t num_tex = pHeader->LTEntry[i].NumTextures;
 		address* pTexEntry = pHeader->LTEntry[i].EntryPoint;
-		off_file << "		LoadTex <- [";
+		off_file << "		\"LoadTex\" : [";
 		for (int j = 0; j <= num_tex - 1; j++) {
 			if (pTexEntry[j] != 0xffffffff) {
 				off_file << "\"" << charname << "_TEXENTRY" << std::to_string(j) << "\"";
 				if (j < num_tex - 1) off_file << ", ";
 			}
 		}
-		off_file << "]\n" <<
-		"	}\n";
+		if (i < 8) {
+			off_file << "]\n" <<
+				"	},\n";
+		}
+		else {
+			off_file << "]\n" <<
+				"	}\n";
+		}
 	}
 
 	off_file << "}\n";

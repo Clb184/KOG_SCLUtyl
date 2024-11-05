@@ -362,7 +362,10 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 
-#Avoid pushing scripts, outputs and nuts
+#Avoid pushing scripts, outputs and json
 *.dat
 *.txt
-*.nut
+*.json
+#Also avoid bat scripts and executable for the repo
+*.bat
+*.exe
