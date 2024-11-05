@@ -362,4 +362,7 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 
+#Avoid pushing scripts, outputs and nuts
 *.dat
+*.txt
+*.nut
