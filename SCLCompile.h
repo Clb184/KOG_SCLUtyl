@@ -12,6 +12,7 @@ enum TOKEN_KIND {
 	TOKEN_COMMENT, // ; as comment, like in a real assembler (Never touched one lol)
 };
 
+//For the tokenizer...
 struct Token {
 	TOKEN_KIND kind;
 	union {
