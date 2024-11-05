@@ -2,6 +2,7 @@
 #define SCLCOMPILE_INCLUDED
 #include "SCLData.h"
 
+//I have to apply certain restrictions for commands...
 enum TOKEN_KIND {
 	TOKEN_KEYWORD, //Words like PROC, TEXINIT, TSET
 	TOKEN_COMMAND, //Words for commans, like SET, CALL, ADD, etc
