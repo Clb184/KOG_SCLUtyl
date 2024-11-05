@@ -24,4 +24,17 @@ struct Token {
 	};
 };
 
+typedef std::map<std::string, ProcDataEx> address_map_ex;
+
+//Main function
+bool CompileSCL(const char* Name, const char* Header, const char* OutputName);
+
+//Stages of compiling
+std::vector<Token> TokenizeInput(char* pInputData); //Tokenize everything
+std::vector<Token> CalculateAddresses(const std::vector<Token>& tokens,address_map_ex* pProcData, address_map_ex* pLabelData); //Calculate addresses and return only command data
+std::vector<SCLInstructionData> ProcessTokens(const std::vector<Token>& tokens,address_map_ex* pProcData, address_map_ex* pLabelData); //Copy all data in the corresponding buffer
+SCLHeader ProcessHeader(char* pData, address_map_ex* pProcData); //Process header data and set addresses
+void* JoinData(const SCLHeader& header_data, const std::vector<SCLInstructionData>& instruction_data); //Finally, join both data
+
+
 #endif

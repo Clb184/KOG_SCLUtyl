@@ -7,6 +7,7 @@
 #include <fstream>
 #include "stdio.h"
 #include "string.h"
+#include "json.hpp"
 
 typedef unsigned char command;
 typedef signed int address;
@@ -266,6 +267,11 @@ struct ProcData {
 	std::string name;
 };
 
+struct ProcDataEx {
+	PROC_TYPE type;
+	address name;
+};
+
 static std::map<SCL_INSTRUCTION, SCLInstructionDefine> g_InstructionSize = {
 	{SCR_NOP,		{"NOP", 1 + 1, {COMMAND, U16}}},
 	{SCR_SET,		{"SET", 1 + 3, {COMMAND, I16, I16, ADDRESS}}},
@@ -360,6 +366,15 @@ static std::map<SCL_INSTRUCTION, SCLInstructionDefine> g_InstructionSize = {
 	{SCR_MAX,		{"MAX", 1, {COMMAND}}},
 	{SCR_MIN,		{"MIN", 1, {COMMAND}}},
 };
+
+//I'm not filling this bullshit by hand
+static std::map<const char*, SCL_INSTRUCTION> g_String2Command;
+
+inline void InitializeString2Command() {
+	for (auto& i: g_InstructionSize) {
+		g_String2Command.insert({i.second.name, i.first});
+	}
+}
 
 inline const char* ID2String(int id) {
 	switch (id) {
