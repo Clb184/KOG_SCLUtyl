@@ -182,6 +182,7 @@ bool TokenizeInput(
                         }
                         if (c == '\"') {
                             find_quote = true;
+                            tok.kind = TOKEN_STRING;
                             idx++;
                         }
                     }
@@ -238,39 +239,20 @@ bool VerifySyntax(
 
     int num_possible = 1;
     TOKEN_KIND possible_tokens[9] = {TOKEN_KEYWORD};
+    SCLInstructionDefine def;
+    int arg_idx = 0;
+    bool anime = false;
     for (auto& t : tokens) {
-        for (int i = 0; i <= num_possible; i++) {
-            if (t.kind == possible_tokens[i]) break;
-            else if (i == num_possible) raise_error = true;
-        }
+        try {
+            for (int i = 0; i <= num_possible && !raise_error; i++) {
+                if (t.kind == possible_tokens[i]) break;
+                else if (i == num_possible) throw t;
+            }
 
-        if (!raise_error) {
-            switch (t.kind) {
-            case TOKEN_KEYWORD:
-                switch (t.number) {
-                case KEY_ENEMYPROC:
-                case KEY_ATKPROC:
-                case KEY_SETPROC:
-                case KEY_EXANMPROC:
-                case KEY_TEXINITPROC:
-                case KEY_LOADTEXPROC:
-                case KEY_PROC:
-                    possible_tokens[0] = TOKEN_IDENTIFIER;
-                    num_possible = 1;
-                    break;
-                case KEY_CONST:
-                    possible_tokens[0] = TOKEN_NUMBER;
-                    num_possible = 1;
-                    break;
-                }
-                guide_token = t;
-                break;
-            case TOKEN_IDENTIFIER:
-                switch (guide_token.kind) {
-                case TOKEN_COMMAND:
-                    break;
+            if (!raise_error) {
+                switch (t.kind) {
                 case TOKEN_KEYWORD:
-                    switch (guide_token.number) {
+                    switch (t.number) {
                     case KEY_ENEMYPROC:
                     case KEY_ATKPROC:
                     case KEY_SETPROC:
@@ -279,29 +261,146 @@ bool VerifySyntax(
                     case KEY_LOADTEXPROC:
                     case KEY_PROC:
                         possible_tokens[0] = TOKEN_IDENTIFIER;
-                        possible_tokens[1] = TOKEN_COMMAND;
-                        possible_tokens[2] = TOKEN_IDENTIFIER;
-                        num_possible = 3;
-                    break;
-                    case KEY_CONST:
+                        num_possible = 1;
                         break;
+                    case KEY_CONST:
+                        possible_tokens[0] = TOKEN_NUMBER;
+                        num_possible = 1;
+                        break;
+                    default:
+                        throw t;
                     }
-                    guide_token = dummy_token;
-                    break;
-                default:
-                case TOKEN_IGNORE:
-                    possible_tokens[0] = TOKEN_DOTS;
-                    num_possible = 1;
                     guide_token = t;
                     break;
+                case TOKEN_IDENTIFIER:
+                    switch (guide_token.kind) {
+                    case TOKEN_COMMAND:
+                        if (arg_idx < def.cnt) {
+                            possible_tokens[0] = TOKEN_COMMA;
+                            num_possible = 1;
+                        }
+                        else {
+                            possible_tokens[0] = TOKEN_IDENTIFIER;
+                            possible_tokens[1] = TOKEN_COMMAND;
+                            possible_tokens[2] = TOKEN_KEYWORD;
+                            num_possible = 3;
+                            guide_token = dummy_token;
+                        }
+                        break;
+                    case TOKEN_KEYWORD:
+                        switch (guide_token.number) {
+                        case KEY_ENEMYPROC:
+                        case KEY_ATKPROC:
+                        case KEY_SETPROC:
+                        case KEY_EXANMPROC:
+                        case KEY_TEXINITPROC:
+                        case KEY_LOADTEXPROC:
+                        case KEY_PROC:
+                            possible_tokens[0] = TOKEN_IDENTIFIER;
+                            possible_tokens[1] = TOKEN_COMMAND;
+                            possible_tokens[2] = TOKEN_KEYWORD;
+                            num_possible = 3;
+                            guide_token = dummy_token;
+                            break;
+                        case KEY_CONST:
+                            break;
+                        default:
+                            throw t;
+                        }
+                        break;
+                    default:
+                    case TOKEN_IGNORE:
+                        possible_tokens[0] = TOKEN_DOTS;
+                        num_possible = 1;
+                        guide_token = t;
+                        break;
+                    }
+                    break;
+                case TOKEN_COMMAND:
+                    def = g_InstructionSize[(SCL_INSTRUCTION)t.number];
+                    guide_token = t;
+                    arg_idx = 1;
+                    {
+                        SCL_DATATYPE req;
+                        switch (t.number) {
+                        case SCR_LOAD:
+                        case SCR_PARENT:
+                        case SCR_PUSHR:
+                        case SCR_POPR: {
+                            SCL_DATATYPE d = def.paramdatatype[1];
+                            def.paramdatatype[1] = def.paramdatatype[0];
+                            def.paramdatatype[0] = d;
+                        }break;
+                        case SCR_CALL:
+                            break;
+                        case SCR_ANIME:
+                            anime = true;
+                        }
+                        if (def.cnt > 1) {
+                            req = def.paramdatatype[1];
+
+                            possible_tokens[0] = (req >= U8 && req <= I32) ? TOKEN_NUMBER : (req == STRING) ? TOKEN_STRING : (req == ADDRESS) ? TOKEN_IDENTIFIER : TOKEN_IGNORE;
+                            possible_tokens[1] = TOKEN_IDENTIFIER;
+                            num_possible = 2;
+                            def.cnt--;
+                        }
+                        else {
+                            possible_tokens[0] = TOKEN_IDENTIFIER;
+                            possible_tokens[1] = TOKEN_COMMAND;
+                            possible_tokens[2] = TOKEN_KEYWORD;
+                            num_possible = 3;
+                            guide_token = dummy_token;
+                        }
+                    }
+                    break;
+                case TOKEN_NUMBER:
+                case TOKEN_STRING:
+                    if (guide_token.kind == TOKEN_COMMAND) {
+                        if (anime && arg_idx == 2) {
+                            def.cnt += t.number;
+                            for (int i = 0; i < t.number; i++) {
+                                def.paramdatatype.emplace_back(U8);
+                            }
+                        }
+                        if (arg_idx < def.cnt) {
+                            possible_tokens[0] = TOKEN_COMMA;
+                            num_possible = 1;
+                        }
+                        else {
+                            if (anime) anime = false;
+                            possible_tokens[0] = TOKEN_IDENTIFIER;
+                            possible_tokens[1] = TOKEN_COMMAND;
+                            possible_tokens[2] = TOKEN_KEYWORD;
+                            num_possible = 3;
+                            guide_token = dummy_token;
+                        }
+                    }
+                    else throw t;
+                    break;
+                case TOKEN_COMMA:
+                    if (guide_token.kind == TOKEN_COMMAND) {
+                        arg_idx++;
+                        SCL_DATATYPE req = def.paramdatatype[arg_idx];
+                        possible_tokens[0] = (req >= U8 && req <= I32) ? TOKEN_NUMBER : (req == STRING) ? TOKEN_STRING : (req == ADDRESS) ? TOKEN_IDENTIFIER : TOKEN_IGNORE;
+                        possible_tokens[1] = TOKEN_IDENTIFIER;
+                        num_possible = 2;
+                    }
+                    else  throw t;
+                    break;
                 }
-            case TOKEN_COMMAND:
+
+            }
+            else {
+                raise_error = true;
                 break;
             }
         }
-        else {
+        catch (const Token& t) {
+            printf("Invalid token in line %d\n", t.line);
             raise_error = true;
-            break;
+        }
+        catch (...) {
+            raise_error = true;
         }
     }
     return !raise_error;

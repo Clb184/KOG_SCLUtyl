@@ -242,7 +242,7 @@ struct SCLParamData {
 struct SCLInstructionDefine {
 	const char* name;
 	int cnt;
-	SCL_DATATYPE paramdatatype[15];
+	std::vector<SCL_DATATYPE> paramdatatype;
 };
 
 struct SCLInstructionData {
