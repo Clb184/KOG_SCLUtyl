@@ -45,7 +45,11 @@ auto printinst = [](const SCLInstructionData& data) {
 			printf("\"%s\"", data.param[i].stringdata);
 			break;
 		}
-		if (i != mx && datatype != COMMAND) printf(", ");
+		if (i != mx && datatype != COMMAND) {
+			if (!((data.cmd == SCR_PUSHR || data.cmd == SCR_POPR || data.cmd == SCR_PARENT) && i == 0)) {
+				printf(", ");
+			}	
+		}
 	}
 };
 
