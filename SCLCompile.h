@@ -15,6 +15,17 @@ enum TOKEN_KIND {
 	//TOKEN_COMMENT, // ; as comment, like in a real assembler (Never touched one lol)
 };
 
+enum KEYWORD_KIND {
+	KEY_PROC,
+	KEY_TEXINITPROC,
+	KEY_ENEMYPROC,
+	KEY_ATKPROC,
+	KEY_EXANMPROC,
+	KEY_SETPROC,
+	KEY_LOADTEXPROC,
+	KEY_CONST,
+};
+
 //For the tokenizer...
 struct Token {
 	TOKEN_KIND kind;
@@ -26,6 +37,17 @@ struct Token {
 struct OutputData {
 	void* pData;
 	size_t size;
+};
+
+static std::map<const std::string, KEYWORD_KIND> g_Keystr2Tok = {
+	{"PROC", KEY_PROC},
+	{"TEXINITPROC", KEY_TEXINITPROC},
+	{"ENEMY", KEY_ENEMYPROC},
+	{"TSET", KEY_ATKPROC},
+	{"EXANM", KEY_EXANMPROC},
+	{"SETPROC", KEY_SETPROC},
+	{"LOADTEXPROC", KEY_LOADTEXPROC},
+	{"const", KEY_CONST},
 };
 
 typedef std::map<std::string, ProcDataEx> address_map_ex;
@@ -42,11 +64,17 @@ bool TokenizeInput(
 	std::vector<Token>* pToken
 ); 
 
+//Verify the syntax
+bool VerifySyntax(
+	const std::vector<Token>& tokens
+);
+
 //Calculate addresses and return only command data
-std::vector<Token> CalculateAddresses(
+bool CalculateAddresses(
 	const std::vector<Token>& tokens,
 	address_map_ex* pProcData, 
-	address_map_ex* pLabelData
+	address_map_ex* pLabelData,
+	std::vector<Token>* pTokenOut
 ); 
 
 //Copy all data in the corresponding buffer

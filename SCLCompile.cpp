@@ -1,15 +1,11 @@
 #include "SCLCompile.h"
 
-inline bool IsValidKeyword(const std::string& word) {
-    return
-        word == "TEXINITPROC" || 
-        word == "ENEMY" || 
-        word == "TSET" || 
-        word == "EXANM" || 
-        word == "SETPROC" ||
-        word == "LOADTEXPROC" || 
-        word == "PROC" ||
-        word == "const";
+inline bool IsValidKeyword(const std::string& word, int* pint) {
+    if (g_Keystr2Tok.find(word) != g_Keystr2Tok.end()) {
+        *pint = g_Keystr2Tok[word];
+        return true;
+    }
+    return false;
 }
 
 inline bool IsValidCommand(const std::string& word, int* pint) {
@@ -113,16 +109,19 @@ bool CompileSCL(const char* Name, const char* Header, const char* OutputName) {
                 }
                 return;
                 };
-            p();
-            tok_data = CalculateAddresses(tok_data, &proc_data, &label_data);
-            instruction_data = ProcessTokens(tok_data, proc_data, label_data);
-            if (ProcessHeader(Header, &proc_data, &head)) {
-                OutputData pSCLData = JoinData(head, instruction_data);
-                FILE* out = fopen(OutputName, "wb");
-                fwrite(pSCLData.pData, pSCLData.size, 1, out);
-                fclose(out);
-                free(pSCLData.pData);
-                success = true;
+            //p();
+            if (VerifySyntax(tok_data)) {
+                if (CalculateAddresses(tok_data, &proc_data, &label_data, &tok_data)) {
+                    instruction_data = ProcessTokens(tok_data, proc_data, label_data);
+                    if (ProcessHeader(Header, &proc_data, &head)) {
+                        OutputData pSCLData = JoinData(head, instruction_data);
+                        FILE* out = fopen(OutputName, "wb");
+                        fwrite(pSCLData.pData, pSCLData.size, 1, out);
+                        fclose(out);
+                        free(pSCLData.pData);
+                        success = true;
+                    }
+                }
             }
         }
         free(pTextData);
@@ -198,7 +197,7 @@ bool TokenizeInput(
                 }
                 else if (IsValidFirstIdentifier(c)) {
                     if (GetIdentifier(pInputData, size, idx, tok.pStr)) {
-                        tok.kind = (IsValidKeyword(tok.pStr)) ? TOKEN_KEYWORD : (IsValidCommand(tok.pStr, &tok.number)) ? TOKEN_COMMAND : TOKEN_IDENTIFIER;
+                        tok.kind = (IsValidKeyword(tok.pStr, &tok.number)) ? TOKEN_KEYWORD : (IsValidCommand(tok.pStr, &tok.number)) ? TOKEN_COMMAND : TOKEN_IDENTIFIER;
                     }
                     else throw 0;
                 }
@@ -228,13 +227,94 @@ bool TokenizeInput(
     return success;
 }
 
-std::vector<Token> CalculateAddresses(
+bool VerifySyntax(
+    const std::vector<Token>& tokens
+)
+{
+    bool raise_error = false;
+    Token dummy_token = { TOKEN_IGNORE };
+    Token guide_token = dummy_token;
+    TOKEN_KIND token = TOKEN_KEYWORD;
+
+    int num_possible = 1;
+    TOKEN_KIND possible_tokens[9] = {TOKEN_KEYWORD};
+    for (auto& t : tokens) {
+        for (int i = 0; i <= num_possible; i++) {
+            if (t.kind == possible_tokens[i]) break;
+            else if (i == num_possible) raise_error = true;
+        }
+
+        if (!raise_error) {
+            switch (t.kind) {
+            case TOKEN_KEYWORD:
+                switch (t.number) {
+                case KEY_ENEMYPROC:
+                case KEY_ATKPROC:
+                case KEY_SETPROC:
+                case KEY_EXANMPROC:
+                case KEY_TEXINITPROC:
+                case KEY_LOADTEXPROC:
+                case KEY_PROC:
+                    possible_tokens[0] = TOKEN_IDENTIFIER;
+                    num_possible = 1;
+                    break;
+                case KEY_CONST:
+                    possible_tokens[0] = TOKEN_NUMBER;
+                    num_possible = 1;
+                    break;
+                }
+                guide_token = t;
+                break;
+            case TOKEN_IDENTIFIER:
+                switch (guide_token.kind) {
+                case TOKEN_COMMAND:
+                    break;
+                case TOKEN_KEYWORD:
+                    switch (guide_token.number) {
+                    case KEY_ENEMYPROC:
+                    case KEY_ATKPROC:
+                    case KEY_SETPROC:
+                    case KEY_EXANMPROC:
+                    case KEY_TEXINITPROC:
+                    case KEY_LOADTEXPROC:
+                    case KEY_PROC:
+                        possible_tokens[0] = TOKEN_IDENTIFIER;
+                        possible_tokens[1] = TOKEN_COMMAND;
+                        possible_tokens[2] = TOKEN_IDENTIFIER;
+                        num_possible = 3;
+                    break;
+                    case KEY_CONST:
+                        break;
+                    }
+                    guide_token = dummy_token;
+                    break;
+                default:
+                case TOKEN_IGNORE:
+                    possible_tokens[0] = TOKEN_DOTS;
+                    num_possible = 1;
+                    guide_token = t;
+                    break;
+                }
+            case TOKEN_COMMAND:
+                break;
+            }
+        }
+        else {
+            raise_error = true;
+            break;
+        }
+    }
+    return !raise_error;
+}
+
+bool CalculateAddresses(
     const std::vector<Token>& tokens, 
     address_map_ex* pProcData, 
-    address_map_ex* pLabelData
+    address_map_ex* pLabelData,
+    std::vector<Token>* pTokenOut
 ) 
 {
-    return std::vector<Token>();
+    return false;
 }
 
 std::vector<SCLInstructionData> ProcessTokens(
