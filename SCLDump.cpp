@@ -328,7 +328,7 @@ void PrintSCL() {
 			it++;
 		}
 		if (it2 != g_LabelData.end() && it2->first <= i.add) {
-			std::cout << "." << it2->second.name << "\n";
+			std::cout << it2->second.name << ":\n";
 			it2++;
 		}
 		printf("\t"); printinst(i); printf("\n");

@@ -368,11 +368,11 @@ static std::map<SCL_INSTRUCTION, SCLInstructionDefine> g_InstructionSize = {
 };
 
 //I'm not filling this bullshit by hand
-static std::map<const char*, SCL_INSTRUCTION> g_String2Command;
+static std::map<const std::string, SCL_INSTRUCTION> g_Str2Cmd;
 
 inline void InitializeString2Command() {
 	for (auto& i: g_InstructionSize) {
-		g_String2Command.insert({i.second.name, i.first});
+		g_Str2Cmd.insert({i.second.name, i.first});
 	}
 }
 
