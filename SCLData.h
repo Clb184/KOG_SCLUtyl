@@ -248,7 +248,7 @@ struct SCLInstructionDefine {
 struct SCLInstructionData {
 	SCL_INSTRUCTION cmd;
 	address add;
-	int cnt;
+	int cnt = 1;
 	std::vector<SCLParamData> param;
 };
 

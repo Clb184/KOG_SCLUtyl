@@ -91,7 +91,6 @@ bool CompileSCL(const char* Name, const char* Header, const char* OutputName) {
         //Relevant data
         SCLHeader head;
         address_map_ex proc_data;
-        address_map_ex label_data;
         std::vector<Token> tok_data;
         std::vector<Token> processed_token;
         std::vector<SCLInstructionData> instruction_data;
@@ -112,8 +111,8 @@ bool CompileSCL(const char* Name, const char* Header, const char* OutputName) {
                 };
             //p();
             if (VerifySyntax(tok_data, &processed_token)) {
-                if (CalculateAddresses(processed_token, &proc_data, &label_data, &instruction_data)) {
-                    PopulateAddresses(tok_data, proc_data, label_data);
+                if (CalculateAddresses(processed_token, &proc_data)) {
+                    PopulateAddresses(proc_data);
                     if (ProcessHeader(Header, &proc_data, &head)) {
                         OutputData pSCLData = JoinData(head, instruction_data);
                         FILE* out = fopen(OutputName, "wb");
@@ -234,17 +233,28 @@ bool VerifySyntax(
     std::vector<Token>* pProcessedData
 )
 {
+    //Something went wrong or not
     bool raise_error = false;
+    //For resetting the guide
     Token dummy_token = { TOKEN_IGNORE };
+    //This is used as a guide on what to do, following certain rules
     Token guide_token = dummy_token;
-    TOKEN_KIND token = TOKEN_KEYWORD;
 
+    //This stores what token are needed
     int num_possible = 1;
     TOKEN_KIND possible_tokens[9] = {TOKEN_KEYWORD};
+    //Used to look at reference for arguments
     SCLInstructionDefine def;
     int arg_idx = 0;
+    //Activated by ANIME which needs an array
     bool anime = false;
+    //Activated when entering a subroutine
     bool on_sub = false;
+
+    Token ProcName { TOKEN_PROC, 0, ""};
+    Token LabName { TOKEN_PROC, 0, ""};
+    Token* pAnimP = nullptr;
+
     for (auto& t : tokens) {
         try {
             for (int i = 0; i <= num_possible && !raise_error; i++) {
@@ -268,10 +278,12 @@ bool VerifySyntax(
                         possible_tokens[0] = TOKEN_IDENTIFIER;
                         num_possible = 1;
                         on_sub = true;
+                        guide_token = t;
                         break;
                     case KEY_CONST:
-                        possible_tokens[0] = TOKEN_NUMBER;
+                        possible_tokens[0] = TOKEN_IDENTIFIER;
                         num_possible = 1;
+                        guide_token = t;
                         break;
                     case KEY_ENDPROC:
                         if (!on_sub) throw t;
@@ -279,11 +291,14 @@ bool VerifySyntax(
                         num_possible = 3;
                         guide_token = dummy_token;
                         on_sub = false;
+                        {
+                            Token tmp{TOKEN_ENDPROC};
+                            pProcessedData->emplace_back(tmp);
+                        }
                         break;
                     default:
                         throw t;
                     }
-                    guide_token = t;
                     break;
                 case TOKEN_IDENTIFIER:
                     switch (guide_token.kind) {
@@ -300,6 +315,11 @@ bool VerifySyntax(
                             num_possible = 3;
                             guide_token = dummy_token;
                         }
+                        {
+                            Token tk = t;
+                            tk.line = 4;
+                            pProcessedData->emplace_back(tk);
+                        }
                         break;
                     case TOKEN_KEYWORD:
                         switch (guide_token.number) {
@@ -314,9 +334,16 @@ bool VerifySyntax(
                             possible_tokens[1] = TOKEN_COMMAND;
                             possible_tokens[2] = TOKEN_KEYWORD;
                             num_possible = 3;
+                            {
+                                Token tmp = { TOKEN_PROC, 0, t.pStr };
+                                pProcessedData->emplace_back(tmp);
+                            }
                             guide_token = dummy_token;
                             break;
                         case KEY_CONST:
+                            possible_tokens[0] = TOKEN_NUMBER;
+                            possible_tokens[1] = TOKEN_STRING;
+                            num_possible = 2;
                             break;
                         default:
                             throw t;
@@ -338,6 +365,8 @@ bool VerifySyntax(
                     guide_token = t;
                     arg_idx = 1;
                     {
+                        Token args;
+                        args.kind = TOKEN_INCOUNT;
                         SCL_DATATYPE req;
                         switch (t.number) {
                         case SCR_LOAD:
@@ -360,6 +389,7 @@ bool VerifySyntax(
                             possible_tokens[1] = TOKEN_IDENTIFIER;
                             num_possible = 2;
                             def.cnt--;
+                            args.number = def.cnt;
                         }
                         else {
                             possible_tokens[0] = TOKEN_IDENTIFIER;
@@ -367,14 +397,26 @@ bool VerifySyntax(
                             possible_tokens[2] = TOKEN_KEYWORD;
                             num_possible = 3;
                             guide_token = dummy_token;
+                            args.number = 0;
                         }
+                        pProcessedData->emplace_back(t);
+                        pProcessedData->emplace_back(args);
+                            
                     }
                     break;
                 case TOKEN_NUMBER:
                 case TOKEN_STRING:
-                    if (guide_token.kind == TOKEN_COMMAND) {
+                    if (guide_token.number == KEY_CONST) {
+                        possible_tokens[0] = TOKEN_IDENTIFIER;
+                        possible_tokens[1] = TOKEN_COMMAND;
+                        possible_tokens[2] = TOKEN_KEYWORD;
+                        num_possible = 3;
+                        guide_token = dummy_token;
+                    }
+                    else if (guide_token.kind == TOKEN_COMMAND) {
                         if (anime && arg_idx == 2) {
                             def.cnt += t.number;
+                            (pProcessedData->end() - 2)->number += t.number;
                             for (int i = 0; i < t.number; i++) {
                                 def.paramdatatype.emplace_back(U8);
                             }
@@ -391,6 +433,20 @@ bool VerifySyntax(
                             num_possible = 3;
                             guide_token = dummy_token;
                         }
+                        size_t of = 0;
+                        if (t.kind == TOKEN_NUMBER) {
+                            switch (def.paramdatatype[arg_idx]) {
+                            case U32: case I32: of = 4; break;
+                            case U16: case I16: of = 2; break;
+                            case U8: case I8: of = 1; break;
+                            }
+                        }
+                        else if (t.kind == TOKEN_STRING) {
+                            of = t.pStr.length() + 1;
+                        }
+                        Token tmp = t;
+                        tmp.line = of;
+                        pProcessedData->emplace_back(tmp);
                     }
                     else throw t;
                     break;
@@ -410,6 +466,8 @@ bool VerifySyntax(
                         possible_tokens[1] = TOKEN_COMMAND;
                         possible_tokens[2] = TOKEN_KEYWORD;
                         num_possible = 3;
+                        Token tmp { TOKEN_LABEL, 0, guide_token.pStr };
+                        pProcessedData->emplace_back(tmp);
                         guide_token = dummy_token;
                     }
                     break;
@@ -417,6 +475,7 @@ bool VerifySyntax(
 
             }
             else {
+                printf("An error has ocurred L: %d\n", t.line);
                 raise_error = true;
                 break;
             }
@@ -429,23 +488,60 @@ bool VerifySyntax(
             raise_error = true;
         }
     }
+    if (on_sub)
+        raise_error = true;
     return !raise_error;
 }
 
 bool CalculateAddresses(
     const std::vector<Token>& tokens, 
-    address_map_ex* pProcData, 
-    address_map_ex* pLabelData,
-    std::vector<SCLInstructionData>* pInstructionData
+    address_map_ex* pProcData
 ) 
 {
-    return false;
+    bool raise_error = false;
+    address offset = sizeof(SCLHeader);
+    size_t size = tokens.size();
+    for (int i = 0; i < size; i++) {
+        if (tokens[i].kind == TOKEN_PROC) {
+            ProcDataEx2 chunk;
+            chunk.ads = offset;
+            const std::string name = tokens[i].pStr;
+            i++;
+            while (tokens[i].kind != TOKEN_ENDPROC) {
+                switch (tokens[i].kind){
+                    case TOKEN_COMMAND: {
+                        SCLInstructionData data;
+                        data.cmd = (SCL_INSTRUCTION)tokens[i].number;
+                        i++;
+                        if (tokens[i].kind == TOKEN_INCOUNT) {
+                            size_t pc = tokens[i].number;
+                            data.cnt = pc;
+                            i++;
+                            for (int j = 0; j < pc; j++, i++) {
+                                SCLParamData param;
+                                if (tokens[i].kind == TOKEN_STRING)
+                                    param.stringdata = (char*)tokens[i].pStr.data();
+                                else
+                                    param.sdword = tokens[i].number;
+                                data.param.emplace_back(param);
+                            }
+                        }
+                        chunk.cmd_data.emplace_back(std::move(data));
+                    } break;
+                    case TOKEN_LABEL: {
+                        chunk.label_data.insert({tokens[i].pStr, offset});
+                        i++;
+                    }break;
+                }
+            }
+            pProcData->insert({name, chunk});
+        }
+    }
+    return !raise_error;
 }
 
 bool PopulateAddresses(
-    const std::vector<Token>& tokens, 
-    const address_map_ex& pProcData, 
-    const address_map_ex& pLabelData
+    address_map_ex& pProcData
 )
 {
     return false;

@@ -1,6 +1,7 @@
 #ifndef SCLCOMPILE_INCLUDED
 #define SCLCOMPILE_INCLUDED
 #include "SCLData.h"
+#include <unordered_map>
 
 //I have to apply certain restrictions for commands...
 enum TOKEN_KIND {
@@ -14,10 +15,11 @@ enum TOKEN_KIND {
 	TOKEN_DOTS, // the comma for separating things
 
 	//Extra tokens to make some stuff faster to process, i think
-	TOKEN_PROC,
-	TOKEN_LABEL,
-	TOKEN_INCOUNT,
-	TOKEN_CONST,
+	TOKEN_PROC, //This holds the name of the procedure
+	TOKEN_ENDPROC, //This tells to stop reading a subroutine
+	TOKEN_LABEL, //the name of a label
+	TOKEN_INCOUNT, //number of instructions to read
+	TOKEN_CONST, //has the name of a const
 
 	//TOKEN_COMMENT, // ; as comment, like in a real assembler (Never touched one lol)
 };
@@ -47,6 +49,12 @@ struct OutputData {
 	size_t size;
 };
 
+struct ProcDataEx2 {
+	address ads;
+	std::vector<SCLInstructionData> cmd_data;
+	std::map<const std::string, address> label_data;
+};
+
 static std::map<const std::string, KEYWORD_KIND> g_Keystr2Tok = {
 	{"PROC", KEY_PROC},
 	{"TEXINITPROC", KEY_TEXINITPROC},
@@ -59,7 +67,9 @@ static std::map<const std::string, KEYWORD_KIND> g_Keystr2Tok = {
 	{"const", KEY_CONST},
 };
 
-typedef std::map<std::string, ProcDataEx> address_map_ex;
+static std::map<const std::string, Token> g_DefMap;
+
+typedef std::map<std::string, ProcDataEx2> address_map_ex;
 
 //Main function
 bool CompileSCL(const char* Name, const char* Header, const char* OutputName);
@@ -82,16 +92,12 @@ bool VerifySyntax(
 //Calculate addresses and parse command data
 bool CalculateAddresses(
 	const std::vector<Token>& tokens,
-	address_map_ex* pProcData, 
-	address_map_ex* pLabelData,
-	std::vector<SCLInstructionData>* pInstructionData
+	address_map_ex* pProcData
 ); 
 
 //Fill the corresponding addresses
 bool PopulateAddresses(
-	const std::vector<Token>& tokens,
-	const address_map_ex& pProcData, 
-	const address_map_ex& pLabelData
+	address_map_ex& pProcData
 ); 
 
 //Process header data and set addresses
