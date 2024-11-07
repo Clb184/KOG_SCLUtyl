@@ -55,6 +55,7 @@ struct ProcDataEx2 {
 	std::map<const std::string, address> label_data;
 };
 
+
 static std::map<const std::string, KEYWORD_KIND> g_Keystr2Tok = {
 	{"PROC", KEY_PROC},
 	{"TEXINITPROC", KEY_TEXINITPROC},
@@ -66,8 +67,6 @@ static std::map<const std::string, KEYWORD_KIND> g_Keystr2Tok = {
 	{"ENDPROC", KEY_ENDPROC},
 	{"const", KEY_CONST},
 };
-
-static std::map<const std::string, Token> g_DefMap;
 
 typedef std::map<std::string, ProcDataEx2> address_map_ex;
 
@@ -92,11 +91,12 @@ bool VerifySyntax(
 //Calculate addresses and parse command data
 bool CalculateAddresses(
 	const std::vector<Token>& tokens,
-	address_map_ex* pProcData
+	address_map_ex* pProcData,
+	size_t* end_file_size
 ); 
 
 //Fill the corresponding addresses
-bool PopulateAddresses(
+void PopulateAddresses(
 	address_map_ex& pProcData
 ); 
 

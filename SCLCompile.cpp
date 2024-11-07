@@ -94,6 +94,7 @@ bool CompileSCL(const char* Name, const char* Header, const char* OutputName) {
         std::vector<Token> tok_data;
         std::vector<Token> processed_token;
         std::vector<SCLInstructionData> instruction_data;
+        size_t bin_size;
         InitializeString2Command();
         if (TokenizeInput(pTextData, size, &tok_data)) {
             auto p = [&]() {
@@ -111,7 +112,7 @@ bool CompileSCL(const char* Name, const char* Header, const char* OutputName) {
                 };
             //p();
             if (VerifySyntax(tok_data, &processed_token)) {
-                if (CalculateAddresses(processed_token, &proc_data)) {
+                if (CalculateAddresses(processed_token, &proc_data, &bin_size)) {
                     PopulateAddresses(proc_data);
                     if (ProcessHeader(Header, &proc_data, &head)) {
                         OutputData pSCLData = JoinData(head, instruction_data);
@@ -251,9 +252,12 @@ bool VerifySyntax(
     //Activated when entering a subroutine
     bool on_sub = false;
 
+    //Constants got by the const keyword
+    std::map<const std::string, Token> const_map;
     Token ProcName { TOKEN_PROC, 0, ""};
     Token LabName { TOKEN_PROC, 0, ""};
     Token* pAnimP = nullptr;
+    int ident_size = 0;
 
     for (auto& t : tokens) {
         try {
@@ -304,20 +308,55 @@ bool VerifySyntax(
                     switch (guide_token.kind) {
                     case TOKEN_COMMAND:
                         if (!on_sub) throw t;
-                        if (arg_idx < def.cnt) {
-                            possible_tokens[0] = TOKEN_COMMA;
-                            num_possible = 1;
-                        }
-                        else {
-                            possible_tokens[0] = TOKEN_IDENTIFIER;
-                            possible_tokens[1] = TOKEN_COMMAND;
-                            possible_tokens[2] = TOKEN_KEYWORD;
-                            num_possible = 3;
-                            guide_token = dummy_token;
-                        }
                         {
+                            SCL_DATATYPE datat = def.paramdatatype[arg_idx];
                             Token tk = t;
-                            tk.line = 4;
+                            if (datat != ADDRESS) {
+                                if (const_map.find(t.pStr) != const_map.end()) {
+                                    //Expand constant data
+                                    size_t of = 0;
+                                    const Token& tok = const_map[t.pStr];
+                                    switch (datat) {
+                                    case U32: case I32: 
+                                        if (tok.kind == TOKEN_NUMBER) { 
+                                            of += 2;
+                                        }
+                                        else throw t;
+                                    case U16: case I16: 
+                                        if (tok.kind == TOKEN_NUMBER) { 
+                                            of++;
+                                        }
+                                        else throw t;
+                                    case U8: case I8:  
+                                        if (tok.kind == TOKEN_NUMBER) {
+                                            of++;
+                                            tk.number = tok.number;
+                                        }
+                                        else throw t; break;
+                                    case STRING: 
+                                        if (tok.kind == TOKEN_STRING) {
+                                            of = tok.pStr.length() + 1;
+                                            tk.pStr = tok.pStr;
+                                        }
+                                        else throw t; break;
+                                    }
+                                    tk.line = of;
+                                }
+                            }
+                            else {
+                                tk.line = 4;
+                            }
+                            if (arg_idx < def.cnt) {
+                                possible_tokens[0] = TOKEN_COMMA;
+                                num_possible = 1;
+                            }
+                            else {
+                                possible_tokens[0] = TOKEN_IDENTIFIER;
+                                possible_tokens[1] = TOKEN_COMMAND;
+                                possible_tokens[2] = TOKEN_KEYWORD;
+                                num_possible = 3;
+                                guide_token = dummy_token;
+                            }
                             pProcessedData->emplace_back(tk);
                         }
                         break;
@@ -343,6 +382,7 @@ bool VerifySyntax(
                         case KEY_CONST:
                             possible_tokens[0] = TOKEN_NUMBER;
                             possible_tokens[1] = TOKEN_STRING;
+                            guide_token.pStr = t.pStr;
                             num_possible = 2;
                             break;
                         default:
@@ -412,6 +452,7 @@ bool VerifySyntax(
                         possible_tokens[2] = TOKEN_KEYWORD;
                         num_possible = 3;
                         guide_token = dummy_token;
+                        const_map.insert({guide_token.pStr, t});
                     }
                     else if (guide_token.kind == TOKEN_COMMAND) {
                         if (anime && arg_idx == 2) {
@@ -494,8 +535,9 @@ bool VerifySyntax(
 }
 
 bool CalculateAddresses(
-    const std::vector<Token>& tokens, 
-    address_map_ex* pProcData
+    const std::vector<Token>& tokens,
+    address_map_ex* pProcData,
+    size_t* end_file_size
 ) 
 {
     bool raise_error = false;
@@ -516,14 +558,17 @@ bool CalculateAddresses(
                         if (tokens[i].kind == TOKEN_INCOUNT) {
                             size_t pc = tokens[i].number;
                             data.cnt = pc;
+                            offset++;
                             i++;
                             for (int j = 0; j < pc; j++, i++) {
                                 SCLParamData param;
-                                if (tokens[i].kind == TOKEN_STRING)
+                                if (tokens[i].kind == TOKEN_STRING || tokens[i].kind == TOKEN_IDENTIFIER)
                                     param.stringdata = (char*)tokens[i].pStr.data();
-                                else
+                                else if (tokens[i].kind == TOKEN_NUMBER)
                                     param.sdword = tokens[i].number;
+
                                 data.param.emplace_back(param);
+                                offset += tokens[i].line;
                             }
                         }
                         chunk.cmd_data.emplace_back(std::move(data));
@@ -537,14 +582,53 @@ bool CalculateAddresses(
             pProcData->insert({name, chunk});
         }
     }
+    if (!raise_error)
+        *end_file_size = offset;
     return !raise_error;
 }
 
-bool PopulateAddresses(
+void PopulateAddresses(
     address_map_ex& pProcData
 )
 {
-    return false;
+    for (auto& p : pProcData) {
+        ProcDataEx2& chunk = p.second;
+        for (auto& c: chunk.cmd_data) {
+            switch (c.cmd) {
+            case SCR_TJMP: 
+            case SCR_FJMP: 
+            case SCR_JMP: 
+            case SCR_OJMP: 
+            case SCR_AJMP: 
+            case SCR_LJMP: 
+            {
+                c.param[0].ads = chunk.label_data[c.param[0].stringdata];
+            }break;
+            case SCR_CALL:
+            case SCR_ESET:
+            case SCR_FATK:
+            case SCR_ATKNP:
+            case SCR_TASK:
+            {
+                c.param[0].ads = pProcData[c.param[0].stringdata].ads;
+            }break;
+            case SCR_CHILD:
+            case SCR_CHGTASK:
+            {
+                c.param[1].ads = pProcData[c.param[1].stringdata].ads;
+            }break;
+            case SCR_SET:
+            case SCR_ATK:
+            {
+                c.param[2].ads = pProcData[c.param[2].stringdata].ads;
+            }break;
+            case SCR_ATK2:
+            {
+                c.param[3].ads = pProcData[c.param[3].stringdata].ads;
+            }break;
+            }
+        }
+    }
 }
 
 bool ProcessHeader(
