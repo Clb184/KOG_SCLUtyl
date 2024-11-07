@@ -12,6 +12,13 @@ enum TOKEN_KIND {
 	TOKEN_STRING, // Words between quotes like "TEX_YUUKA"
 	TOKEN_COMMA, // the comma for separating things
 	TOKEN_DOTS, // the comma for separating things
+
+	//Extra tokens to make some stuff faster to process, i think
+	TOKEN_PROC,
+	TOKEN_LABEL,
+	TOKEN_INCOUNT,
+	TOKEN_CONST,
+
 	//TOKEN_COMMENT, // ; as comment, like in a real assembler (Never touched one lol)
 };
 
@@ -23,6 +30,7 @@ enum KEYWORD_KIND {
 	KEY_EXANMPROC,
 	KEY_SETPROC,
 	KEY_LOADTEXPROC,
+	KEY_ENDPROC,
 	KEY_CONST,
 };
 
@@ -47,6 +55,7 @@ static std::map<const std::string, KEYWORD_KIND> g_Keystr2Tok = {
 	{"EXANM", KEY_EXANMPROC},
 	{"SETPROC", KEY_SETPROC},
 	{"LOADTEXPROC", KEY_LOADTEXPROC},
+	{"ENDPROC", KEY_ENDPROC},
 	{"const", KEY_CONST},
 };
 
@@ -64,21 +73,22 @@ bool TokenizeInput(
 	std::vector<Token>* pToken
 ); 
 
-//Verify the syntax
+//Verify the syntax and try to make an easier to understand array to process data
 bool VerifySyntax(
-	const std::vector<Token>& tokens
+	const std::vector<Token>& tokens,
+	std::vector<Token>* pProcessedData
 );
 
-//Calculate addresses and return only command data
+//Calculate addresses and parse command data
 bool CalculateAddresses(
 	const std::vector<Token>& tokens,
 	address_map_ex* pProcData, 
 	address_map_ex* pLabelData,
-	std::vector<Token>* pTokenOut
+	std::vector<SCLInstructionData>* pInstructionData
 ); 
 
-//Copy all data in the corresponding buffer
-std::vector<SCLInstructionData> ProcessTokens(
+//Fill the corresponding addresses
+bool PopulateAddresses(
 	const std::vector<Token>& tokens,
 	const address_map_ex& pProcData, 
 	const address_map_ex& pLabelData

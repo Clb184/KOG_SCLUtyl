@@ -316,6 +316,7 @@ void ReadSCL(void* pData, size_t size, const char* name) {
 void PrintSCL() {
 	address_map::iterator it = g_ProcData.begin();
 	address_map::iterator it2 = g_LabelData.begin();
+	int proc_cnt = 0;
 	for (auto& i : g_InstructionData) {
 		if (it != g_ProcData.end() && it->first <= i.add) {
 			std::string ref = "";
@@ -328,8 +329,11 @@ void PrintSCL() {
 			case PROC_LOADTEX: ref = "\nLOADTEXPROC "; break;
 			default: ref = "\nPROC "; break;
 			}
+			if (proc_cnt > 0)
+				printf("ENDPROC\n");
 			std::cout << ref << it->second.name << "\n";
 			it++;
+			proc_cnt++;
 		}
 		if (it2 != g_LabelData.end() && it2->first <= i.add) {
 			std::cout << it2->second.name << ":\n";
@@ -337,4 +341,5 @@ void PrintSCL() {
 		}
 		printf("\t"); printinst(i); printf("\n");
 	}
+	printf("ENDPROC\n");
 }

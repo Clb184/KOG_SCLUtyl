@@ -93,6 +93,7 @@ bool CompileSCL(const char* Name, const char* Header, const char* OutputName) {
         address_map_ex proc_data;
         address_map_ex label_data;
         std::vector<Token> tok_data;
+        std::vector<Token> processed_token;
         std::vector<SCLInstructionData> instruction_data;
         InitializeString2Command();
         if (TokenizeInput(pTextData, size, &tok_data)) {
@@ -110,9 +111,9 @@ bool CompileSCL(const char* Name, const char* Header, const char* OutputName) {
                 return;
                 };
             //p();
-            if (VerifySyntax(tok_data)) {
-                if (CalculateAddresses(tok_data, &proc_data, &label_data, &tok_data)) {
-                    instruction_data = ProcessTokens(tok_data, proc_data, label_data);
+            if (VerifySyntax(tok_data, &processed_token)) {
+                if (CalculateAddresses(processed_token, &proc_data, &label_data, &instruction_data)) {
+                    PopulateAddresses(tok_data, proc_data, label_data);
                     if (ProcessHeader(Header, &proc_data, &head)) {
                         OutputData pSCLData = JoinData(head, instruction_data);
                         FILE* out = fopen(OutputName, "wb");
@@ -229,7 +230,8 @@ bool TokenizeInput(
 }
 
 bool VerifySyntax(
-    const std::vector<Token>& tokens
+    const std::vector<Token>& tokens,
+    std::vector<Token>* pProcessedData
 )
 {
     bool raise_error = false;
@@ -242,11 +244,13 @@ bool VerifySyntax(
     SCLInstructionDefine def;
     int arg_idx = 0;
     bool anime = false;
+    bool on_sub = false;
     for (auto& t : tokens) {
         try {
             for (int i = 0; i <= num_possible && !raise_error; i++) {
-                if (t.kind == possible_tokens[i]) break;
-                else if (i == num_possible) throw t;
+                if (i >= num_possible) throw t;
+                else if (t.kind == possible_tokens[i]) break;
+                
             }
 
             if (!raise_error) {
@@ -260,12 +264,21 @@ bool VerifySyntax(
                     case KEY_TEXINITPROC:
                     case KEY_LOADTEXPROC:
                     case KEY_PROC:
+                        if (on_sub) throw t;
                         possible_tokens[0] = TOKEN_IDENTIFIER;
                         num_possible = 1;
+                        on_sub = true;
                         break;
                     case KEY_CONST:
                         possible_tokens[0] = TOKEN_NUMBER;
                         num_possible = 1;
+                        break;
+                    case KEY_ENDPROC:
+                        if (!on_sub) throw t;
+                        possible_tokens[2] = TOKEN_KEYWORD;
+                        num_possible = 3;
+                        guide_token = dummy_token;
+                        on_sub = false;
                         break;
                     default:
                         throw t;
@@ -275,6 +288,7 @@ bool VerifySyntax(
                 case TOKEN_IDENTIFIER:
                     switch (guide_token.kind) {
                     case TOKEN_COMMAND:
+                        if (!on_sub) throw t;
                         if (arg_idx < def.cnt) {
                             possible_tokens[0] = TOKEN_COMMA;
                             num_possible = 1;
@@ -309,7 +323,9 @@ bool VerifySyntax(
                         }
                         break;
                     default:
+                        throw t;
                     case TOKEN_IGNORE:
+                        if (!on_sub) throw t;
                         possible_tokens[0] = TOKEN_DOTS;
                         num_possible = 1;
                         guide_token = t;
@@ -317,6 +333,7 @@ bool VerifySyntax(
                     }
                     break;
                 case TOKEN_COMMAND:
+                    if (!on_sub) throw t;
                     def = g_InstructionSize[(SCL_INSTRUCTION)t.number];
                     guide_token = t;
                     arg_idx = 1;
@@ -331,7 +348,7 @@ bool VerifySyntax(
                             def.paramdatatype[1] = def.paramdatatype[0];
                             def.paramdatatype[0] = d;
                         }break;
-                        case SCR_CALL:
+                        case SCR_ATK:
                             break;
                         case SCR_ANIME:
                             anime = true;
@@ -387,6 +404,15 @@ bool VerifySyntax(
                     }
                     else  throw t;
                     break;
+                case TOKEN_DOTS:
+                    if (guide_token.kind == TOKEN_IDENTIFIER) {
+                        possible_tokens[0] = TOKEN_IDENTIFIER;
+                        possible_tokens[1] = TOKEN_COMMAND;
+                        possible_tokens[2] = TOKEN_KEYWORD;
+                        num_possible = 3;
+                        guide_token = dummy_token;
+                    }
+                    break;
                 }
 
             }
@@ -410,19 +436,19 @@ bool CalculateAddresses(
     const std::vector<Token>& tokens, 
     address_map_ex* pProcData, 
     address_map_ex* pLabelData,
-    std::vector<Token>* pTokenOut
+    std::vector<SCLInstructionData>* pInstructionData
 ) 
 {
     return false;
 }
 
-std::vector<SCLInstructionData> ProcessTokens(
+bool PopulateAddresses(
     const std::vector<Token>& tokens, 
     const address_map_ex& pProcData, 
     const address_map_ex& pLabelData
 )
 {
-    return std::vector<SCLInstructionData>();
+    return false;
 }
 
 bool ProcessHeader(

@@ -17,7 +17,7 @@ int main(int argc, char** argv) {
 		name = argv[1];
 		break;
 	}
-	if (!CompileSCL("stage01.txt", "stage01.dat.json", "output.dat")) std::cout << "Failed loading file\n";
+	if (!CompileSCL("stage01.txt", "stage01.dat.json", "output.dat")) std::cout << "Failed compiling file\n";
 	//if (!DumpSCL(name.c_str())) std::cout << "Failed loading file\n";
 
 }
