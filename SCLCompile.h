@@ -68,7 +68,7 @@ static std::map<const std::string, KEYWORD_KIND> g_Keystr2Tok = {
 	{"const", KEY_CONST},
 };
 
-typedef std::map<std::string, ProcDataEx2> address_map_ex;
+typedef std::unordered_map<std::string, ProcDataEx2> address_map_ex;
 
 //Main function
 bool CompileSCL(const char* Name, const char* Header, const char* OutputName);
@@ -92,25 +92,29 @@ bool VerifySyntax(
 bool CalculateAddresses(
 	const std::vector<Token>& tokens,
 	address_map_ex* pProcData,
-	size_t* end_file_size
+	size_t* end_file_size,
+	std::vector<std::string>& ProcNameOrder
 ); 
 
 //Fill the corresponding addresses
 void PopulateAddresses(
-	address_map_ex& pProcData
+	address_map_ex& pProcData,
+	std::vector<SCLInstructionData>& pInsData
 ); 
 
 //Process header data and set addresses
 bool ProcessHeader(
 	const char* json, 
-	address_map_ex* pProcData, 
+	const address_map_ex& pProcData, 
 	SCLHeader* pHeader
 ); 
 
 //Finally, join both data
-OutputData JoinData(
-	const SCLHeader& header_data,
-	const std::vector<SCLInstructionData>& instruction_data
+void* JoinData(
+	SCLHeader* header_data,
+	const address_map_ex& proc_datass,
+	const std::vector<std::string>& ProcNameOrder,
+	size_t size
 );
 
 

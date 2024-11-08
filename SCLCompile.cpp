@@ -93,8 +93,9 @@ bool CompileSCL(const char* Name, const char* Header, const char* OutputName) {
         address_map_ex proc_data;
         std::vector<Token> tok_data;
         std::vector<Token> processed_token;
-        std::vector<SCLInstructionData> instruction_data;
         size_t bin_size;
+        std::vector<SCLInstructionData> ins_data;
+        std::vector<std::string> procname_data;
         InitializeString2Command();
         if (TokenizeInput(pTextData, size, &tok_data)) {
             auto p = [&]() {
@@ -112,14 +113,14 @@ bool CompileSCL(const char* Name, const char* Header, const char* OutputName) {
                 };
             //p();
             if (VerifySyntax(tok_data, &processed_token)) {
-                if (CalculateAddresses(processed_token, &proc_data, &bin_size)) {
-                    PopulateAddresses(proc_data);
-                    if (ProcessHeader(Header, &proc_data, &head)) {
-                        OutputData pSCLData = JoinData(head, instruction_data);
+                if (CalculateAddresses(processed_token, &proc_data, &bin_size, procname_data)) {
+                    PopulateAddresses(proc_data, ins_data);
+                    if (ProcessHeader(Header, proc_data, &head)) {
+                        void* pData = JoinData(&head, proc_data, procname_data, bin_size);
                         FILE* out = fopen(OutputName, "wb");
-                        fwrite(pSCLData.pData, pSCLData.size, 1, out);
+                        fwrite(pData, bin_size, 1, out);
                         fclose(out);
-                        free(pSCLData.pData);
+                        free(pData);
                         success = true;
                     }
                 }
@@ -374,7 +375,7 @@ bool VerifySyntax(
                             possible_tokens[2] = TOKEN_KEYWORD;
                             num_possible = 3;
                             {
-                                Token tmp = { TOKEN_PROC, 0, t.pStr };
+                                Token tmp = { TOKEN_PROC, guide_token.number, t.pStr };
                                 pProcessedData->emplace_back(tmp);
                             }
                             guide_token = dummy_token;
@@ -537,17 +538,28 @@ bool VerifySyntax(
 bool CalculateAddresses(
     const std::vector<Token>& tokens,
     address_map_ex* pProcData,
-    size_t* end_file_size
+    size_t* end_file_size,
+    std::vector<std::string>& ProcNameOrder
 ) 
 {
     bool raise_error = false;
     address offset = sizeof(SCLHeader);
     size_t size = tokens.size();
+    bool found_texproc = false;
+    int err_code = -1;
     for (int i = 0; i < size; i++) {
         if (tokens[i].kind == TOKEN_PROC) {
             ProcDataEx2 chunk;
             chunk.ads = offset;
             const std::string name = tokens[i].pStr;
+            if (tokens[i].number == KEY_TEXINITPROC) {
+                if (found_texproc) {
+                    raise_error = true;
+                    err_code = 0;
+                    break;
+                }
+                else found_texproc = true;
+            }
             i++;
             while (tokens[i].kind != TOKEN_ENDPROC) {
                 switch (tokens[i].kind){
@@ -580,15 +592,25 @@ bool CalculateAddresses(
                 }
             }
             pProcData->insert({name, chunk});
+            ProcNameOrder.emplace_back(name);
         }
     }
     if (!raise_error)
         *end_file_size = offset;
+    else {
+        const char* msg = "";
+        switch (err_code) {
+        case 0:
+            msg = "There can only be one TexInit Procedure."; break;
+        }
+        printf("Error: %s\n", msg);
+    }
     return !raise_error;
 }
 
 void PopulateAddresses(
-    address_map_ex& pProcData
+    address_map_ex& pProcData,
+    std::vector<SCLInstructionData>& pInsData
 )
 {
     for (auto& p : pProcData) {
@@ -633,27 +655,245 @@ void PopulateAddresses(
 
 bool ProcessHeader(
     const char* json, 
-    address_map_ex* pProcData,
+    const address_map_ex& pProcData,
     SCLHeader* pHeader
 ) 
 {
+    memset(pHeader, 0xffffffff, sizeof(SCLHeader));
     std::ifstream header(json);
-    
+    bool raise_error = false;
     nlohmann::json jheader = nlohmann::json::parse(header);
-    try {
-        std::string tes = jheader["asd"];
+    if (jheader.find("TexInit") != jheader.end()) {
+        try {
+            const std::string& k = jheader["TexInit"];
+            if (pProcData.find(k) != pProcData.end()) {
+                address ads = pProcData.at(k).ads;
+                pHeader->TexInitializer = ads;
+            }
+            else raise_error = true;
+        }
+        catch (...) {
+            printf("Argument for TexInit must be an String.\n");
+        }
     }
-    catch (...) {
-        return false;
+    else raise_error = true;
+    if (raise_error) return false;
+
+    const std::string SCLLevels[] = {"SCL1", "SCL2", "SCL3", "SCL4"};
+    int cnt = 0;
+
+    //I don't know if this is necessary, but just in case
+    pHeader->NumLv1SCL = 0;
+    pHeader->NumLv2SCL = 0;
+    pHeader->NumLv3SCL = 0;
+    pHeader->NumLv4SCL = 0;
+    memset(pHeader->SCL_Lv1, 0xffffffff, sizeof(int) * SCLBUFFER_SIZE);
+    memset(pHeader->SCL_Lv2, 0xffffffff, sizeof(int) * SCLBUFFER_SIZE);
+    memset(pHeader->SCL_Lv3, 0xffffffff, sizeof(int) * SCLBUFFER_SIZE);
+    memset(pHeader->SCL_Lv4, 0xffffffff, sizeof(int) * SCLBUFFER_SIZE);
+
+    for (auto& scl : SCLLevels) {
+        if (jheader.find(scl) != jheader.end()) {
+            try {
+                const std::vector<std::string>& k = jheader[scl];
+                try {
+                    int func_idx = 0;
+                    for (auto& s : k) {
+                        if (func_idx >= SCLBUFFER_SIZE) {
+                            printf("Warning in JSON header: Truncating procedure fetching.\n");
+                            break;
+                        }
+                        if (pProcData.find(s) != pProcData.end()) {
+                            address ads = pProcData.at(s).ads;
+                            switch (cnt) {
+                            case 0: pHeader->SCL_Lv1[func_idx] = ads; break;
+                            case 1: pHeader->SCL_Lv2[func_idx] = ads; break;
+                            case 2: pHeader->SCL_Lv3[func_idx] = ads; break;
+                            case 3: pHeader->SCL_Lv4[func_idx] = ads; break;
+                            }
+                        }
+                        else throw s;
+                        func_idx++;
+                    }
+                    switch (cnt) {
+                    case 0: pHeader->NumLv1SCL = func_idx; break;
+                    case 1: pHeader->NumLv2SCL = func_idx; break;
+                    case 2: pHeader->NumLv3SCL = func_idx; break;
+                    case 3: pHeader->NumLv4SCL = func_idx; break;
+                    }
+                    cnt++;
+                }
+                catch (const std::string& func) {
+                    printf("Error in JSON header: Procedure \"%s\" doesn't exist.\n", func.c_str());
+                    raise_error = true;
+                    break;
+                }
+            }
+            catch(...) {
+                printf("Argument for SCL level must be an Array of strings.\n");
+                raise_error = true;
+                break;
+            }
+        }
+        else raise_error = true;
     }
-    return true;
+    if (raise_error) return false;
+    const std::string player_table_name[] = {"Boss", "Combo", "Atk1", "Atk2", "Anm1", "Anm2","BossAnm", "WinAnm"};
+    //Zero initialize this
+    for (int i = 0; i < NUM_CHARACTERS; i++) {
+        pHeader->LTEntry[i].NumTextures = 0;
+        for (auto& tinit: pHeader->LTEntry[i].EntryPoint) {
+            tinit = 0xffffffff;
+        }
+    }
+    for (int i = 0; i < 9; i++) {
+        const std::string character = ID2String(i);
+        if (jheader.find(character) != jheader.end()) {
+            const auto& k = jheader[character];
+            try {
+                int table = 0;
+                for (auto& e : player_table_name) {
+                    const std::string& proc = k[e];
+                    try {
+                        if (pProcData.find(proc) != pProcData.end()) {
+                            address ads = pProcData.at(proc).ads;
+                            switch (table) {
+                            case 0: pHeader->BossAddr[i] = ads; break;
+                            case 1: pHeader->ComboAddr[i] = ads;  break;
+                            case 2: pHeader->Lv1Attack[i] = ads;  break;
+                            case 3: pHeader->Lv2Attack[i] = ads;  break;
+                            case 4: pHeader->ExAnmLv1[i] = ads;  break;
+                            case 5: pHeader->ExAnmLv2[i] = ads;  break;
+                            case 6: pHeader->ExAnmBoss[i] = ads;  break;
+                            case 7: pHeader->ExAnmWin[i] = ads;  break;
+                            }
+                            table++;
+                        }
+                        else throw proc;
+                    }
+                    catch (const std::string& func) {
+                        printf("Error in JSON header: Procedure \"%s\" doesn't exist.\n", func.c_str());
+                        raise_error = true;
+                        break;
+                    }
+                }
+            }
+            catch (...) {
+                printf("Arguments for player attack and animation procedures must be strings.\n");
+                raise_error = true;
+                break;
+            }
+            if (raise_error) break;
+            if (k.find("LoadTex") != k.end()) {
+                try {
+                    const std::vector<std::string>& ltex = k["LoadTex"];
+                    try {
+                        int ltentry = 0;
+                        for (auto& s : ltex) {
+                            if (ltentry >= LOADTEXTURE_MAX) {
+                                printf("Warning in JSON header: Truncating LOADTEX procedure fetching.\n");
+                                break;
+                            }
+                            if (pProcData.find(s) != pProcData.end()) {
+                                address ads = pProcData.at(s).ads;
+                                pHeader->LTEntry[i].EntryPoint[ltentry] = ads;
+                                ltentry++;
+                            }
+                            else throw s;
+                        }
+                        pHeader->LTEntry[i].NumTextures = ltentry;
+                    }
+                    catch (const std::string& func) {
+                        printf("Error in JSON header: function \"%s\" doesn't exist.\n", func.c_str());
+                        raise_error = true;
+                        break;
+                    }
+                }
+                catch (...) {
+                    printf("Argument for LoadTex must be an Array of strings.\n");
+                    raise_error = true;
+                    break;
+                }
+            }
+        }
+        else raise_error = true;
+    }
+
+    return !raise_error;
 }
 
-OutputData JoinData(
-    const SCLHeader& header_data, 
-    const std::vector<SCLInstructionData>& instruction_data
+void* JoinData(
+    SCLHeader* header_data, 
+    const address_map_ex& proc_data,
+    const std::vector<std::string>& ProcNameOrder,
+    size_t size
 )
 {
-    OutputData ret = {};
-    return ret;
+    char* pData = (char*)malloc(size);
+    size_t idx = sizeof(SCLHeader);
+    memset(pData, 0x00, size);
+    memcpy(pData, header_data, sizeof(SCLHeader));
+    for (const auto& chunk_name : ProcNameOrder) {
+        const std::vector<SCLInstructionData>& ref_ins = proc_data.at(chunk_name).cmd_data;
+        for (const auto& data : ref_ins) {
+            switch (data.cmd) {
+            case SCR_LOAD:
+                pData[idx] = char(data.param[0].sdword % 0x100);
+                pData[idx + 1] = data.cmd;
+                pData[idx + 2] = char(data.param[1].sdword % 0x100);
+                memcpy(pData + 3 + idx, data.param[2].stringdata, std::strlen(data.param[2].stringdata));
+                idx += 3 + std::strlen(data.param[2].stringdata) + 1;
+                break;
+            case SCR_PARENT:
+            case SCR_PUSHR:
+            case SCR_POPR:
+                pData[idx] = char(data.param[0].sdword % 0x100);
+                pData[idx + 1] = data.cmd;
+                idx += 2;
+                break;
+            default: {
+                SCLInstructionDefine def = g_InstructionSize[(SCL_INSTRUCTION)data.cmd];
+                pData[idx] = data.cmd;
+                if (data.cmd == SCR_ANIME) {
+                    int anim_cnt = data.param[1].sdword;
+                    def.cnt += anim_cnt;
+                    for (int f = 0; f < anim_cnt; f++) {
+                        def.paramdatatype.emplace_back(U8);
+                    }
+                }
+                idx++;
+                for (int i = 1; i < def.cnt; i++) {
+                    switch (def.paramdatatype[i]) {
+                    case U8: case I8: {
+                        char bytedata = (char)(data.param[i - 1].sdword % 0x100);
+                        pData[idx] = bytedata;
+                        idx++;
+                        break;
+                    }
+                    case U16: case I16: {
+                        short shortdata = (short)(data.param[i - 1].sdword % 0x10000);
+                        *(short*)(pData + idx) = shortdata;
+                        idx += 2;
+                        break;
+                    }
+                    case ADDRESS:
+                    case U32: case I32: {
+                        int intdata = (data.param[i - 1].sdword);
+                        *(int*)(pData + idx) = intdata;
+                        idx += 4;
+                        break;
+                    }
+                    case STRING: {
+                        size_t str = std::strlen(data.param[i - 1].stringdata);
+                        memcpy(pData + idx, data.param[i - 1].stringdata, str);
+                        idx += str + 1;
+                    }
+                    }
+                }
+            }
+                   break;
+            }
+        }
+    }
+    return pData;
 }
