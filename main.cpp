@@ -1,24 +1,38 @@
 #include "SCLDump.h"
 #include "SCLCompile.h"
 #include <iostream>
+#include <random>
 
 #ifdef _DEBUG
+
+void PrintUsage(char* name) {
+	printf(
+		"Usage: %s \n"
+		"d JSONOUT (extension will be added automatically)\n"
+		"c SOURCE HEADER.json OUTPUT\n",
+		name
+	);
+}
 
 int main(int argc, char** argv) {
 	std::string name;
 	std::string header_name;
-
-	switch (argc) {
-	case 1:
-		//std::cout << "Enter filename: "; std::cin >> name;
-		//std::cout << "Enter header name: "; std::cin >> header_name;
-		break;
-	case 2:
-		name = argv[1];
-		break;
+	if (argc < 2) {
+		PrintUsage(argv[0]);
+		return -1;
 	}
-	if (!CompileSCL("stage01.txt", "stage01.dat.json", "output.dat")) std::cout << "Failed compiling file\n";
-	//if (!DumpSCL(name.c_str())) std::cout << "Failed loading file\n";
+	std::string option = argv[1];
+	if (option == "d" && argc == 3) {
+		if (!DumpSCL(argv[2])) std::cout << "Failed dumping file\n";
+	}
+	else if (option == "c" && argc == 5) {
+		if (!CompileSCL(argv[2], argv[3], argv[4])) std::cout << "Failed compiling file\n";
+	}
+	else {
+		PrintUsage(argv[0]);
+		return -1;
+	}
+	//
 
 }
 #else 
