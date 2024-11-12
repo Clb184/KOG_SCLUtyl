@@ -31,7 +31,7 @@ auto printinst = [](const SCLInstructionData& data) {
 			printf("%d", data.param[i].word);
 			break;
 		case I16:
-			printf("%d", data.param[i].sword);
+			printf("%d", (short)data.param[i].sword);
 			break;
 		case COMMAND:
 			break;
@@ -39,7 +39,7 @@ auto printinst = [](const SCLInstructionData& data) {
 			printf("%d", data.param[i].byte);
 			break;
 		case I8:
-			printf("%d", data.param[i].sbyte);
+			printf("%d", (char)data.param[i].sbyte);
 			break;
 		case STRING:
 			printf("\"%s\"", data.param[i].stringdata);

@@ -77,16 +77,7 @@ bool GetIdentifier(char* pData, size_t bufSize, size_t& buf_idx, std::string& re
 }
 
 bool CompileSCL(const char* Name, const char* Header, const char* OutputName) {
-    FILE* fp;
-    size_t size;
     bool success = false;
-    if (fp = fopen(Name, "rb")) {
-        fseek(fp, 0, SEEK_END);
-        size = ftell(fp);
-        rewind(fp);
-        char* pTextData = (char*)malloc(size);
-        fread(pTextData, size, 1, fp);
-        fclose(fp);
 
         //Relevant data
         SCLHeader head;
@@ -94,131 +85,165 @@ bool CompileSCL(const char* Name, const char* Header, const char* OutputName) {
         std::vector<Token> tok_data;
         std::vector<Token> processed_token;
         size_t bin_size;
-        std::vector<SCLInstructionData> ins_data;
+        ins_data ins_data;
         std::vector<std::string> procname_data;
         InitializeString2Command();
-        if (TokenizeInput(pTextData, size, &tok_data)) {
+        if (TokenizeInput(Name, &tok_data)) {
             if (VerifySyntax(tok_data, &processed_token)) {
                 if (CalculateAddresses(processed_token, &proc_data, &bin_size, procname_data)) {
-                    PopulateAddresses(proc_data, ins_data);
-                    if (ProcessHeader(Header, proc_data, &head)) {
-                        void* pData = JoinData(&head, proc_data, procname_data, bin_size);
-                        if (FILE* out = fopen(OutputName, "wb")) {
-                            fwrite(pData, bin_size, 1, out);
-                            fclose(out);
-                            free(pData);
-                            success = true;
+                    if (PopulateAddresses(proc_data)) {
+                        if (ProcessHeader(Header, proc_data, &head)) {
+                            void* pData = JoinData(&head, proc_data, procname_data, bin_size);
+                            if (FILE* out = fopen(OutputName, "wb")) {
+                                fwrite(pData, bin_size, 1, out);
+                                fclose(out);
+                                free(pData);
+                                success = true;
+                            }
                         }
                     }
                 }
             }
         }
-        free(pTextData);
-    }
     return success;
 }
 
 bool TokenizeInput(
-    char* pInputData, 
-    size_t size,
+    const char* pSourceFile,
     std::vector<Token>* pToken
 ) 
 {
     bool success = true;
-    size_t idx = 0;
-    size_t line = 1;
-    bool is_comment = false;
-    while (idx < size) {
-        char c = pInputData[idx];
-        try {
-            Token tok;
-            tok.kind = TOKEN_IGNORE;
-            tok.line = line;
-            if (c == ' ' || c == '\t' || c == 0x0d) {
-                idx++;
-            }
-            else if (c == '\n') {
-                idx++;
-                line++;
-            }
-            else if (IsValidCharacter(c)) {
-                bool sign = false;
-                if (c == ',') {
-                    tok.kind = TOKEN_COMMA;
-                    idx++;
-                }
-                else if (c == ':') {
-                    tok.kind = TOKEN_DOTS;
-                    idx++;
-                }
-                else if (c == ';') {
-                    while (idx < size || c != '\n') {
-                        idx++;
-                        c = pInputData[idx];
-                    }
-                    line++;
-                }
-                //Get string, if no quote is found before new line, throw an error
-                else if (c == '\"') {
-                    bool find_quote = false;
-                    idx++;
-                    if (idx < size) {
-                        c = pInputData[idx];
-                        while ((idx < size && c != '\"')) {
-                            tok.pStr.push_back(c);
-                            idx++;
-                            c = pInputData[idx];
-                        }
-                        if (c == '\"') {
-                            find_quote = true;
-                            tok.kind = TOKEN_STRING;
-                            idx++;
-                        }
-                    }
-                    if(!find_quote) throw 2;
-                }
-                else if (IsValidFirstNumberCharacter(c, sign)) {
-                    if (sign) idx++;
-                    if (GetInteger(pInputData, size, idx, &tok.number)) {
-                        tok.kind = TOKEN_NUMBER;
-                        if (sign) tok.number = -tok.number;
-                    }
-                    else throw 1;
-                }
-                else if (IsValidFirstIdentifier(c)) {
-                    if (GetIdentifier(pInputData, size, idx, tok.pStr)) {
-                        tok.kind = (IsValidKeyword(tok.pStr, &tok.number)) ? TOKEN_KEYWORD : (IsValidCommand(tok.pStr, &tok.number)) ? TOKEN_COMMAND : TOKEN_IDENTIFIER;
-                    }
-                    else throw 0;
-                }
-            }
-            if (tok.kind != TOKEN_IGNORE)
-                pToken->emplace_back(tok);
-        }
-        //Handle errors
-        catch (int i) {
-            const char* err = "";
-            switch (i) {
-            case 0: err = "Invalid identifier"; break;
-            case 1: err = "Invalid combination with integer"; break;
-            case 2: err = "String quote not found"; break;
-            }
-            printf("Error line %d: %s\n", line, err);
-            success = false;
-            break;
-        }
-        catch (...) {
-            printf("Error line %d: Unspecified error\n", line);
-            success = false;
-            break;
-        }
+    bool on_open = false;
+    FILE* fp;
+    try {
+        fp = fopen(pSourceFile, "rb");
+        on_open = fp != nullptr;
+    }
+    catch (...) {
+        on_open = false;
     }
 
+    if (on_open) {
+        size_t size;
+        fseek(fp, 0, SEEK_END);
+        size = ftell(fp);
+        rewind(fp);
+        char* pSourceData = (char*)malloc(size);
+        fread(pSourceData, size, 1, fp);
+        fclose(fp);
+
+        size_t idx = 0;
+        size_t line = 1;
+        bool is_comment = false;
+        while (idx < size) {
+            char c = pSourceData[idx];
+            try {
+                Token tok;
+                tok.kind = TOKEN_IGNORE;
+                tok.line = line;
+                if (c == ' ' || c == '\t' || c == 0x0d) {
+                    idx++;
+                }
+                else if (c == '\n') {
+                    idx++;
+                    line++;
+                }
+                else if (IsValidCharacter(c)) {
+                    bool sign = false;
+                    if (c == ',') {
+                        tok.kind = TOKEN_COMMA;
+                        idx++;
+                    }
+                    else if (c == ':') {
+                        tok.kind = TOKEN_DOTS;
+                        idx++;
+                    }
+                    else if (c == ';') {
+                        while (idx < size && c != '\n') {
+                            idx++;
+                            c = pSourceData[idx];
+                        }
+                        line++;
+                    }
+                    //Get string, if no quote is found before new line, throw an error
+                    else if (c == '\"') {
+                        bool find_quote = false;
+                        idx++;
+                        if (idx < size) {
+                            c = pSourceData[idx];
+                            while ((idx < size && c != '\"')) {
+                                tok.pStr.push_back(c);
+                                idx++;
+                                c = pSourceData[idx];
+                            }
+                            if (c == '\"') {
+                                find_quote = true;
+                                tok.kind = TOKEN_STRING;
+                                idx++;
+                            }
+                        }
+                        if(!find_quote) throw 2;
+                    }
+                    else if (IsValidFirstNumberCharacter(c, sign)) {
+                        if (sign) idx++;
+                        if (GetInteger(pSourceData, size, idx, &tok.number)) {
+                            tok.kind = TOKEN_NUMBER;
+                            if (sign) tok.number = -tok.number;
+                        }
+                        else throw 1;
+                    }
+                    else if (IsValidFirstIdentifier(c)) {
+                        if (GetIdentifier(pSourceData, size, idx, tok.pStr)) {
+                            tok.kind = (IsValidKeyword(tok.pStr, &tok.number)) ? TOKEN_KEYWORD : (IsValidCommand(tok.pStr, &tok.number)) ? TOKEN_COMMAND : TOKEN_IDENTIFIER;
+                        }
+                        else throw 0;
+                    }
+                }
+                tok.source = pSourceFile;
+                if (tok.kind != TOKEN_IGNORE)
+                    pToken->emplace_back(tok);
+            }
+            //Handle errors
+            catch (int i) {
+                const char* err = "";
+                switch (i) {
+                case 0: err = "Invalid identifier"; break;
+                case 1: err = "Invalid combination with integer"; break;
+                case 2: err = "String quote not found"; break;
+                }
+                printf("%s> Error line %d: %s\n", pSourceFile, line, err);
+                success = false;
+                break;
+            }
+            catch (...) {
+                printf("%s> Error line %d: Unspecified error\n", pSourceFile, line);
+                success = false;
+                break;
+            }
+        }
+
+        free(pSourceData);
+    }
+    else {
+        printf("Can't open source %s\n", pSourceFile);
+        success = false;
+    }
+    return success;
+}
+
+bool IncludeSourceFile(const char* pSourceFile, std::vector<Token>& source, size_t index) {
+    std::vector<Token> source_2;
+    bool success = false;
+    if (TokenizeInput(pSourceFile, &source_2)) {
+        source.insert(source.begin() + index, source_2.begin(), source_2.end());
+        success = true;
+    }
     return success;
 }
 
 bool VerifySyntax(
-    const std::vector<Token>& tokens,
+    std::vector<Token>& tokens,
     std::vector<Token>* pProcessedData
 )
 {
@@ -248,7 +273,9 @@ bool VerifySyntax(
     Token* pAnimP = nullptr;
     int ident_size = 0;
 
-    for (auto& t : tokens) {
+
+    for (int it = 0; it < tokens.size(); it++) {
+        auto& t = tokens[it];
         try {
             for (int i = 0; i <= num_possible && !raise_error; i++) {
                 if (i >= num_possible) throw t;
@@ -275,6 +302,11 @@ bool VerifySyntax(
                         break;
                     case KEY_CONST:
                         possible_tokens[0] = TOKEN_IDENTIFIER;
+                        num_possible = 1;
+                        guide_token = t;
+                        break;
+                    case KEY_INCLUDE:
+                        possible_tokens[0] = TOKEN_STRING;
                         num_possible = 1;
                         guide_token = t;
                         break;
@@ -329,11 +361,11 @@ bool VerifySyntax(
                                         }
                                         else throw t; break;
                                     }
-                                    tk.line = of;
+                                    tk.advance = of;
                                 }
                             }
                             else {
-                                tk.line = 4;
+                                tk.advance = 4;
                             }
                             if (arg_idx < def.cnt) {
                                 possible_tokens[0] = TOKEN_COMMA;
@@ -514,6 +546,16 @@ bool VerifySyntax(
                         guide_token = dummy_token;
                         const_map.insert({guide_token.pStr, t});
                     }
+                    else if (guide_token.number == KEY_INCLUDE && t.kind == TOKEN_STRING) {
+                        if (IncludeSourceFile(t.pStr.c_str(), tokens, it + 1)) {
+                            possible_tokens[0] = TOKEN_IDENTIFIER;
+                            possible_tokens[1] = TOKEN_COMMAND;
+                            possible_tokens[2] = TOKEN_KEYWORD;
+                            num_possible = 3;
+                            guide_token = dummy_token;
+                        }
+                        else throw SourceInfo{ t.source, t.pStr.c_str(),  t.line};
+                    }
                     else if (guide_token.kind == TOKEN_COMMAND) {
                         if (anime && arg_idx == 2) {
                             def.cnt += t.number;
@@ -546,7 +588,7 @@ bool VerifySyntax(
                             of = t.pStr.length() + 1;
                         }
                         Token tmp = t;
-                        tmp.line = of;
+                        tmp.advance = of;
                         pProcessedData->emplace_back(tmp);
                     }
                     else throw t;
@@ -582,7 +624,11 @@ bool VerifySyntax(
             }
         }
         catch (const Token& t) {
-            printf("Invalid token in line %d\n", t.line);
+            printf("Invalid token in line %d @ %s\n", t.line, t.source);
+            raise_error = true;
+        }
+        catch (const SourceInfo& src) {
+            printf("%s - %d: Couldn't include source %s\n", src.pWhereSource, src.line, src.pWhatSource);
             raise_error = true;
         }
         catch (...) {
@@ -606,11 +652,18 @@ bool CalculateAddresses(
     size_t size = tokens.size();
     bool found_texproc = false;
     int err_code = -1;
+    std::string dupe;
     for (int i = 0; i < size; i++) {
         if (tokens[i].kind == TOKEN_PROC) {
             ProcDataEx2 chunk;
             chunk.ads = offset;
             const std::string name = tokens[i].pStr;
+            if (pProcData->find(name) != pProcData->end()) {
+                raise_error = true;
+                err_code = 1;
+                dupe = tokens[i].pStr;
+                break;
+            }
             if (tokens[i].number == KEY_TEXINITPROC) {
                 if (found_texproc) {
                     raise_error = true;
@@ -623,7 +676,9 @@ bool CalculateAddresses(
             while (tokens[i].kind != TOKEN_ENDPROC) {
                 switch (tokens[i].kind){
                     case TOKEN_COMMAND: {
-                        SCLInstructionData data;
+                        SCLInstructionDataEx data;
+                        data.line = tokens[i].line;
+                        data.source = tokens[i].source;
                         data.cmd = (SCL_INSTRUCTION)tokens[i].number;
                         i++;
                         if (tokens[i].kind == TOKEN_INCOUNT) {
@@ -639,77 +694,111 @@ bool CalculateAddresses(
                                     param.sdword = tokens[i].number;
 
                                 data.param.emplace_back(param);
-                                offset += tokens[i].line;
+                                offset += tokens[i].advance;
                             }
                         }
                         chunk.cmd_data.emplace_back(std::move(data));
                     } break;
                     case TOKEN_LABEL: {
+                        if (chunk.label_data.find(tokens[i].pStr) != chunk.label_data.end()) {
+                            raise_error = true;
+                            err_code = 2;
+                            dupe = tokens[i].pStr;
+                            break;
+                        }
                         chunk.label_data.insert({tokens[i].pStr, offset});
                         i++;
                     }break;
                 }
+                if (raise_error)
+                    break;
             }
             pProcData->insert({name, chunk});
             ProcNameOrder.emplace_back(name);
         }
+        if (raise_error)
+            break;
     }
     if (!raise_error)
         *end_file_size = offset;
     else {
         const char* msg = "";
         switch (err_code) {
-        case 0:
-            msg = "There can only be one TexInit Procedure."; break;
+        case 0: printf("Error: There can only be one TexInit Procedure."); break;
+        case 1: printf("Duplicate procedure name: %s\n", dupe.c_str()); break;
+        case 2: printf("Duplicate label name: %s\n", dupe.c_str()); break;
         }
-        printf("Error: %s\n", msg);
     }
     return !raise_error;
 }
 
-void PopulateAddresses(
-    address_map_ex& pProcData,
-    std::vector<SCLInstructionData>& pInsData
+bool PopulateAddresses(
+    address_map_ex& pProcData
 )
 {
-    for (auto& p : pProcData) {
-        ProcDataEx2& chunk = p.second;
-        for (auto& c: chunk.cmd_data) {
-            switch (c.cmd) {
-            case SCR_TJMP: 
-            case SCR_FJMP: 
-            case SCR_JMP: 
-            case SCR_OJMP: 
-            case SCR_AJMP: 
-            case SCR_LJMP: 
-            {
-                c.param[0].ads = chunk.label_data[c.param[0].stringdata];
-            }break;
-            case SCR_CALL:
-            case SCR_ESET:
-            case SCR_FATK:
-            case SCR_ATKNP:
-            case SCR_TASK:
-            {
-                c.param[0].ads = pProcData[c.param[0].stringdata].ads;
-            }break;
-            case SCR_CHILD:
-            case SCR_CHGTASK:
-            {
-                c.param[1].ads = pProcData[c.param[1].stringdata].ads;
-            }break;
-            case SCR_SET:
-            case SCR_ATK:
-            {
-                c.param[2].ads = pProcData[c.param[2].stringdata].ads;
-            }break;
-            case SCR_ATK2:
-            {
-                c.param[3].ads = pProcData[c.param[3].stringdata].ads;
-            }break;
+
+    bool on_success = true;
+
+    try {
+        for (auto& p : pProcData) {
+            ProcDataEx2& chunk = p.second;
+            for (auto& c : chunk.cmd_data) {
+                switch (c.cmd) {
+                case SCR_TJMP:
+                case SCR_FJMP:
+                case SCR_JMP:
+                case SCR_OJMP:
+                case SCR_AJMP:
+                case SCR_LJMP:
+                {
+                    const string& str = c.param[0].stringdata;
+                    if (chunk.label_data.find(str) != chunk.label_data.end())
+                        c.param[0].ads = chunk.label_data[str];
+                    else throw SourceInfo{c.source, str, c.line};
+                }break;
+                case SCR_CALL:
+                case SCR_ESET:
+                case SCR_FATK:
+                case SCR_ATKNP:
+                case SCR_TASK:
+                {
+                    const string& str = c.param[0].stringdata;
+                    if (pProcData.find(str) != pProcData.end())
+                        c.param[0].ads = pProcData[str].ads;
+                    else throw SourceInfo{ c.source, str, c.line };
+                }break;
+                case SCR_CHILD:
+                case SCR_CHGTASK:
+                {
+                    const string& str = c.param[1].stringdata;
+                    if (pProcData.find(str) != pProcData.end())
+                        c.param[1].ads = pProcData[str].ads;
+                    else throw SourceInfo{ c.source, str, c.line };
+                }break;
+                case SCR_SET:
+                case SCR_ATK:
+                {
+                    const string& str = c.param[2].stringdata;
+                    if (pProcData.find(str) != pProcData.end())
+                        c.param[2].ads = pProcData[str].ads;
+                    else throw SourceInfo{ c.source, str, c.line };
+                }break;
+                case SCR_ATK2:
+                {
+                    const string& str = c.param[3].stringdata;
+                    if (pProcData.find(str) != pProcData.end())
+                        c.param[3].ads = pProcData[str].ads;
+                    else throw SourceInfo{ c.source, str, c.line };
+                }break;
+                }
             }
         }
     }
+    catch (const SourceInfo& inf) {
+        printf("%s : %d > Procedure or label \"%s\" doesn't exist.\n", inf.pWhereSource, inf.line, inf.pWhatSource);
+        on_success = false;
+    }
+    return on_success;
 }
 
 bool ProcessHeader(
@@ -893,7 +982,7 @@ void* JoinData(
     memset(pData, 0x00, size);
     memcpy(pData, header_data, sizeof(SCLHeader));
     for (const auto& chunk_name : ProcNameOrder) {
-        const std::vector<SCLInstructionData>& ref_ins = proc_data.at(chunk_name).cmd_data;
+        const ins_data& ref_ins = proc_data.at(chunk_name).cmd_data;
         for (const auto& data : ref_ins) {
             switch (data.cmd) {
             case SCR_LOAD:

@@ -34,6 +34,7 @@ enum KEYWORD_KIND {
 	KEY_LOADTEXPROC,
 	KEY_ENDPROC,
 	KEY_CONST,
+	KEY_INCLUDE,
 };
 
 //For the tokenizer...
@@ -42,6 +43,8 @@ struct Token {
 	size_t line;
 	std::string pStr;
 	int number = 0;
+	size_t advance;
+	const char* source;
 };
 
 struct OutputData {
@@ -49,12 +52,22 @@ struct OutputData {
 	size_t size;
 };
 
+struct SCLInstructionDataEx : public SCLInstructionData {
+	size_t line = -1;
+	const char* source = "";
+};
+
 struct ProcDataEx2 {
 	address ads;
-	std::vector<SCLInstructionData> cmd_data;
+	std::vector<SCLInstructionDataEx> cmd_data;
 	std::map<const std::string, address> label_data;
 };
 
+struct SourceInfo {
+	const char* pWhereSource;
+	const char* pWhatSource;
+	size_t line;
+};
 
 static std::map<const std::string, KEYWORD_KIND> g_Keystr2Tok = {
 	//Procedure types
@@ -69,10 +82,11 @@ static std::map<const std::string, KEYWORD_KIND> g_Keystr2Tok = {
 	//Other Keywords
 	{"ENDPROC", KEY_ENDPROC},
 	{"const", KEY_CONST},
+	{"include", KEY_INCLUDE}
 };
 
 typedef std::vector<SCL_INSTRUCTION> valid_instruction_set;
-
+typedef std::vector<SCLInstructionDataEx> ins_data;
 typedef std::unordered_map<std::string, ProcDataEx2> address_map_ex;
 
 static valid_instruction_set g_ControlFlow = {
@@ -198,14 +212,20 @@ bool CompileSCL(const char* Name, const char* Header, const char* OutputName);
  
 //Tokenize everything
 bool TokenizeInput(
-	char* pInputData, 
-	size_t size,
+	const char* pSourceFile,
 	std::vector<Token>* pToken
-); 
+);
+
+//Include a source file
+bool IncludeSourceFile(
+	const char* pSourceFile,
+	std::vector<Token>& source,
+	size_t index
+);
 
 //Verify the syntax and try to make an easier to understand array to process data
 bool VerifySyntax(
-	const std::vector<Token>& tokens,
+	std::vector<Token>& tokens,
 	std::vector<Token>* pProcessedData
 );
 
@@ -218,9 +238,8 @@ bool CalculateAddresses(
 ); 
 
 //Fill the corresponding addresses
-void PopulateAddresses(
-	address_map_ex& pProcData,
-	std::vector<SCLInstructionData>& pInsData
+bool PopulateAddresses(
+	address_map_ex& pProcData
 ); 
 
 //Process header data and set addresses
