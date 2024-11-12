@@ -361,11 +361,14 @@ bool VerifySyntax(
                                         }
                                         else throw t; break;
                                     }
+                                    tk.kind = tok.kind;
                                     tk.advance = of;
                                 }
+                                pProcessedData->emplace_back(tk);
                             }
                             else {
                                 tk.advance = 4;
+                                pProcessedData->emplace_back(tk);
                             }
                             if (arg_idx < def.cnt) {
                                 possible_tokens[0] = TOKEN_COMMA;
@@ -378,7 +381,6 @@ bool VerifySyntax(
                                 num_possible = 3;
                                 guide_token = dummy_token;
                             }
-                            pProcessedData->emplace_back(tk);
                         }
                         break;
                     case TOKEN_KEYWORD:
@@ -539,12 +541,12 @@ bool VerifySyntax(
                 case TOKEN_NUMBER:
                 case TOKEN_STRING:
                     if (guide_token.number == KEY_CONST) {
+                        const_map.insert({ guide_token.pStr, t });
                         possible_tokens[0] = TOKEN_IDENTIFIER;
                         possible_tokens[1] = TOKEN_COMMAND;
                         possible_tokens[2] = TOKEN_KEYWORD;
                         num_possible = 3;
                         guide_token = dummy_token;
-                        const_map.insert({guide_token.pStr, t});
                     }
                     else if (guide_token.number == KEY_INCLUDE && t.kind == TOKEN_STRING) {
                         if (IncludeSourceFile(t.pStr.c_str(), tokens, it + 1)) {
@@ -694,6 +696,13 @@ bool CalculateAddresses(
                                     param.sdword = tokens[i].number;
 
                                 data.param.emplace_back(param);
+                                if (tokens[i].advance > 100 || tokens[i].advance < 0) {
+                                    __debugbreak();
+                                    auto& debb = tokens[i];
+                                    while (1) {
+                                        ;
+                                    }
+                                }
                                 offset += tokens[i].advance;
                             }
                         }
