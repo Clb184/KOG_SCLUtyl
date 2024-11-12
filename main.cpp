@@ -1,9 +1,6 @@
 #include "SCLDump.h"
 #include "SCLCompile.h"
 #include <iostream>
-#include <random>
-
-#ifdef _DEBUG
 
 void PrintUsage(char* name) {
 	printf(
@@ -23,10 +20,16 @@ int main(int argc, char** argv) {
 	}
 	std::string option = argv[1];
 	if (option == "d" && argc == 3) {
-		if (!DumpSCL(argv[2])) std::cout << "Failed dumping file\n";
+		if (!DumpSCL(argv[2])) {
+			std::cout << "Failed dumping file\n";
+			return -1;
+		}
 	}
 	else if (option == "c" && argc == 5) {
-		if (!CompileSCL(argv[2], argv[3], argv[4])) std::cout << "Failed compiling file\n";
+		if (!CompileSCL(argv[2], argv[3], argv[4])) {
+			std::cout << "Failed compiling file\n";
+			return -1;
+		}
 	}
 	else {
 		PrintUsage(argv[0]);
@@ -35,8 +38,3 @@ int main(int argc, char** argv) {
 	//
 
 }
-#else 
-int main() {
-
-}
-#endif

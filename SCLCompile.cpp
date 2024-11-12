@@ -98,30 +98,17 @@ bool CompileSCL(const char* Name, const char* Header, const char* OutputName) {
         std::vector<std::string> procname_data;
         InitializeString2Command();
         if (TokenizeInput(pTextData, size, &tok_data)) {
-            auto p = [&]() {
-                for (auto& t : tok_data) {
-                    switch (t.kind) {
-                    case TOKEN_COMMAND:
-                    case TOKEN_KEYWORD:
-                    case TOKEN_STRING:
-                    case TOKEN_IDENTIFIER: printf("L %d: %s\n", t.line, t.pStr.c_str()); break;
-                    case TOKEN_NUMBER: printf("L %d: %d\n", t.line, t.number); break;
-
-                    }
-                }
-                return;
-                };
-            //p();
             if (VerifySyntax(tok_data, &processed_token)) {
                 if (CalculateAddresses(processed_token, &proc_data, &bin_size, procname_data)) {
                     PopulateAddresses(proc_data, ins_data);
                     if (ProcessHeader(Header, proc_data, &head)) {
                         void* pData = JoinData(&head, proc_data, procname_data, bin_size);
-                        FILE* out = fopen(OutputName, "wb");
-                        fwrite(pData, bin_size, 1, out);
-                        fclose(out);
-                        free(pData);
-                        success = true;
+                        if (FILE* out = fopen(OutputName, "wb")) {
+                            fwrite(pData, bin_size, 1, out);
+                            fclose(out);
+                            free(pData);
+                            success = true;
+                        }
                     }
                 }
             }
@@ -252,6 +239,7 @@ bool VerifySyntax(
     bool anime = false;
     //Activated when entering a subroutine
     bool on_sub = false;
+    KEYWORD_KIND proc_kind;
 
     //Constants got by the const keyword
     std::map<const std::string, Token> const_map;
@@ -374,6 +362,7 @@ bool VerifySyntax(
                             possible_tokens[1] = TOKEN_COMMAND;
                             possible_tokens[2] = TOKEN_KEYWORD;
                             num_possible = 3;
+                            proc_kind = (KEYWORD_KIND)guide_token.number;
                             {
                                 Token tmp = { TOKEN_PROC, guide_token.number, t.pStr };
                                 pProcessedData->emplace_back(tmp);
@@ -402,6 +391,76 @@ bool VerifySyntax(
                     break;
                 case TOKEN_COMMAND:
                     if (!on_sub) throw t;
+                    {
+                        bool is_correct_instruction = false;
+                        switch (proc_kind) {
+                        case KEY_TEXINITPROC:
+                            for (auto& c : g_TexInitCheck) {
+                                if (t.number == c) {
+                                    is_correct_instruction = true;
+                                    break;
+                                }
+                            }break;
+                        case KEY_PROC:
+                        case KEY_ENEMYPROC:
+                            for (auto& c : g_ControlFlow) {
+                                if (t.number == c) {
+                                    is_correct_instruction = true;
+                                    break;
+                                }
+                            }
+                            for (auto& c : g_EnemyCheck) {
+                                if (t.number == c) {
+                                    is_correct_instruction = true;
+                                    break;
+                                }
+                            }break;
+
+                        case KEY_ATKPROC:
+                            for (auto& c : g_ControlFlow) {
+                                if (t.number == c) {
+                                    is_correct_instruction = true;
+                                    break;
+                                }
+                            }
+                            for (auto& c : g_TSetCheck) {
+                                if (t.number == c) {
+                                    is_correct_instruction = true;
+                                    break;
+                                }
+                            }break;
+
+                        case KEY_EXANMPROC:
+                            for (auto& c : g_ControlFlow) {
+                                if (t.number == c) {
+                                    is_correct_instruction = true;
+                                    break;
+                                }
+                            }
+                            for (auto& c : g_ExAnmCheck) {
+                                if (t.number == c) {
+                                    is_correct_instruction = true;
+                                    break;
+                                }
+                            }break;
+                        case KEY_SETPROC:
+                            for (auto& c : g_SetProcCheck) {
+                                if (t.number == c) {
+                                    is_correct_instruction = true;
+                                    break;
+                                }
+                            }break;
+                        case KEY_LOADTEXPROC:
+                            for (auto& c : g_TexLoadCheck) {
+                                if (t.number == c) {
+                                    is_correct_instruction = true;
+                                    break;
+                                }
+                            }break;
+                        } 
+                        if (!is_correct_instruction)
+                            throw t;
+                    }
                     def = g_InstructionSize[(SCL_INSTRUCTION)t.number];
                     guide_token = t;
                     arg_idx = 1;
