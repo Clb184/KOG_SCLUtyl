@@ -1,4 +1,5 @@
 #include "SCLCompile.h"
+#include "Calc2Token.h"
 
 inline bool IsValidKeyword(const std::string& word, int* pint) {
     if (g_Keystr2Tok.find(word) != g_Keystr2Tok.end()) {
@@ -15,9 +16,51 @@ inline bool IsValidCommand(const std::string& word, int* pint) {
     }
     return false;
 }
+/*
++ - * / % operation
++= -= *= /= %= operation and assign
+== <= >= < > !=
+&&-> min ||-> max
+
+(stuff) && stuff && stuff && stuff
+(((1 1)min 1)min 0)min
+1 1 min 0 min
+1 0 min
+0
+false
+
+
+if not (40 > 60){
+    ...
+       block
+    ...
+}
+
+    40
+    60
+    great
+    tjmp ifblock
+    ...
+        block
+    ...
+ifblock0e:
+    
+*/
+constexpr inline bool IsValidBlockControl(char c) {
+    return c == '{' || c == '}';
+}
+
+constexpr inline bool IsValidArithmeticControl(char c) {
+    return c == '(' || c == ')';
+}
+
+constexpr inline bool IsValidArithmeticSymbol(char c) {
+    return c == '+' || c == '-' || c == '*' || c == '/' || c == '%' || c == '=' || c == '>' || c == '<' || c == '&' || c == '|';
+}
 
 constexpr inline bool IsValidCharacter(char c) {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == ',' || c == ';' || c == '\"' || c == '-' || c == ':';
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == ',' || c == ';' || c == '\"' || c == '-' || c == ':'
+        || IsValidArithmeticSymbol(c) || IsValidArithmeticControl(c) || IsValidBlockControl(c);
 }
 
 constexpr inline bool IsValidFirstIdentifier(char c) {
@@ -38,7 +81,7 @@ constexpr inline bool IsValidNumberCharacter(char c) {
 }
 
 constexpr inline bool IsSeparator(char c) {
-    return c == ',' || c == ' ' || c == '\t' || c == ';' || c == '\n' || c == ':' || c == 0x0d;
+    return c == ',' || c == ' ' || c == '\t' || c == ';' || c == '\n' || c == ':' || c == 0x0d || IsValidArithmeticSymbol(c) || IsValidBlockControl(c) || IsValidArithmeticSymbol(c);
 }
 
 bool GetInteger(char* pData, size_t bufSize, size_t& buf_idx, int* pResult) {
@@ -73,6 +116,72 @@ bool GetIdentifier(char* pData, size_t bufSize, size_t& buf_idx, std::string& re
         }
         buf_idx++;
     }
+    return success;
+}
+
+bool GetArithSign(char* pData, size_t bufSize, size_t& buf_idx, ARITHMETIC_SYMBOL& result) {
+    bool success = true;
+    std::string res = "";
+    while (buf_idx < bufSize) {
+        char c = pData[buf_idx];
+        if (IsValidArithmeticSymbol(c)) {
+            res.push_back(c);
+        }
+        else {
+            break;
+        }
+        buf_idx++;
+    }
+    if (res.length() >= 1) {
+        char base = res.at(0);
+        switch(res.length()) {
+        default: success = false;
+        case 1:
+            switch (base) {
+            case '+': result = AS_ADD; break;
+            case '-': result = AS_SUB; break;
+            case '*': result = AS_MUL; break;
+            case '/': result = AS_DIV; break;
+            case '%': result = AS_MOD; break;
+
+            case '<': result = AS_LESS; break;
+            case '>': result = AS_GREAT; break;
+            case '=': result = AS_ASSIGN; break;
+            default: success = false; break;
+            }
+            break;
+        case 2: {
+            char next = res.at(1);
+            if (next == base) {
+                switch (next) {
+                case '+': result = AS_INC; break;
+                case '-': result = AS_DEC; break;
+                case '&': result = AS_AND; break;
+                case '|': result = AS_OR; break;
+                case '=': result = AS_EQU; break;
+                default: success = false; break;
+                }
+            }
+            else if (next == '=') {
+                switch (base) {
+                case '+': result = AS_ADDA; break;
+                case '-': result = AS_SUBA; break;
+                case '*': result = AS_MULA; break;
+                case '/': result = AS_DIVA; break;
+                case '%': result = AS_MODA; break;
+
+                case '<': result = AS_LESSEQ; break;
+                case '>': result = AS_GREATEQ; break;
+                case '!': result = AS_NOTEQU; break;
+                default: success = false; break;
+                }
+            }
+            else success = false;
+            }break;
+        }
+    }
+    else
+        success = false;
     return success;
 }
 
@@ -142,6 +251,7 @@ bool TokenizeInput(
                 Token tok;
                 tok.kind = TOKEN_IGNORE;
                 tok.line = line;
+                tok.source = pSourceFile;
                 if (c == ' ' || c == '\t' || c == 0x0d) {
                     idx++;
                 }
@@ -164,7 +274,6 @@ bool TokenizeInput(
                             idx++;
                             c = pSourceData[idx];
                         }
-                        line++;
                     }
                     //Get string, if no quote is found before new line, throw an error
                     else if (c == '\"') {
@@ -183,24 +292,48 @@ bool TokenizeInput(
                                 idx++;
                             }
                         }
-                        if(!find_quote) throw 2;
+                        if (!find_quote) throw 2;
                     }
-                    else if (IsValidFirstNumberCharacter(c, sign)) {
-                        if (sign) idx++;
+                    else if (IsValidNumberCharacter(c)) {
                         if (GetInteger(pSourceData, size, idx, &tok.number)) {
                             tok.kind = TOKEN_NUMBER;
-                            if (sign) tok.number = -tok.number;
                         }
                         else throw 1;
                     }
                     else if (IsValidFirstIdentifier(c)) {
                         if (GetIdentifier(pSourceData, size, idx, tok.pStr)) {
-                            tok.kind = (IsValidKeyword(tok.pStr, &tok.number)) ? TOKEN_KEYWORD : (IsValidCommand(tok.pStr, &tok.number)) ? TOKEN_COMMAND : TOKEN_IDENTIFIER;
+                            tok.kind =
+                                (IsValidKeyword(tok.pStr, &tok.number)) ? TOKEN_KEYWORD :
+                                (IsValidCommand(tok.pStr, &tok.number)) ? TOKEN_COMMAND :
+                                TOKEN_IDENTIFIER;
+                            if (g_ArithFunc.find(tok.pStr) != g_ArithFunc.end()) {
+                                tok.kind = TOKEN_ARITHF;
+                                tok.number = g_ArithFunc[tok.pStr];
+                                tok.line = line;
+                                tok.source = pSourceFile;
+                            }
                         }
                         else throw 0;
                     }
+                    else if (IsValidArithmeticSymbol(c)) {
+                        ARITHMETIC_SYMBOL sym;
+                        if (GetArithSign(pSourceData, size, idx, sym)) {
+                            tok.kind = TOKEN_ARITHS;
+                            tok.number = sym;
+                        }
+                    }
+                    else if (IsValidArithmeticControl(c)) {
+                        tok.kind = (c == '(') ? TOKEN_BEGINPARENTHESIS : TOKEN_ENDPARENTHESIS;
+                        idx++;
+                    }
+                    else if (IsValidBlockControl(c)) {
+                        tok.kind = (c == '{') ? TOKEN_BEGINBLOCK : TOKEN_ENDBLOCK;
+                        idx++;
+                    }
+                    else throw c;
+
                 }
-                tok.source = pSourceFile;
+                else throw c;
                 if (tok.kind != TOKEN_IGNORE)
                     pToken->emplace_back(tok);
             }
@@ -213,6 +346,11 @@ bool TokenizeInput(
                 case 2: err = "String quote not found"; break;
                 }
                 printf("%s> Error line %d: %s\n", pSourceFile, line, err);
+                success = false;
+                break;
+            }
+            catch (char c) {
+                printf("%s> Error line %c: Unrecognized character %c\n", pSourceFile, line, c);
                 success = false;
                 break;
             }
@@ -267,23 +405,22 @@ bool VerifySyntax(
     KEYWORD_KIND proc_kind;
 
     //Constants got by the const keyword
-    std::map<const std::string, Token> const_map;
+    constant_map const_map;
     Token ProcName { TOKEN_PROC, 0, ""};
     Token LabName { TOKEN_PROC, 0, ""};
     Token* pAnimP = nullptr;
     int ident_size = 0;
 
 
-    for (int it = 0; it < tokens.size(); it++) {
+    for (size_t it = 0; it < tokens.size(); it++) {
         auto& t = tokens[it];
         try {
-            for (int i = 0; i <= num_possible && !raise_error; i++) {
+            for (int i = 0; i <= num_possible; i++) {
                 if (i >= num_possible) throw t;
                 else if (t.kind == possible_tokens[i]) break;
                 
             }
 
-            if (!raise_error) {
                 switch (t.kind) {
                 case TOKEN_KEYWORD:
                     switch (t.number) {
@@ -363,8 +500,8 @@ bool VerifySyntax(
                                     }
                                     tk.kind = tok.kind;
                                     tk.advance = of;
+                                    pProcessedData->emplace_back(tk);
                                 }
-                                pProcessedData->emplace_back(tk);
                             }
                             else {
                                 tk.advance = 4;
@@ -417,9 +554,17 @@ bool VerifySyntax(
                         throw t;
                     case TOKEN_IGNORE:
                         if (!on_sub) throw t;
-                        possible_tokens[0] = TOKEN_DOTS;
-                        num_possible = 1;
-                        guide_token = t;
+                        if (g_ArithFunc.find(t.pStr) != g_ArithFunc.end()) {
+                            possible_tokens[0] = TOKEN_ARITHC;
+                            num_possible = 1;
+                            guide_token = t;
+                        }
+                        else {
+                            possible_tokens[0] = TOKEN_DOTS;
+                            possible_tokens[1] = TOKEN_ARITHS;
+                            num_possible = 2;
+                            guide_token = t;
+                        }
                         break;
                     }
                     break;
@@ -593,7 +738,11 @@ bool VerifySyntax(
                         tmp.advance = of;
                         pProcessedData->emplace_back(tmp);
                     }
-                    else throw t;
+                    else {
+                        possible_tokens[0] = TOKEN_ARITHS;
+                        possible_tokens[1] = TOKEN_ARITHF;
+                        num_possible = 2;
+                    }
                     break;
                 case TOKEN_COMMA:
                     if (guide_token.kind == TOKEN_COMMAND) {
@@ -616,14 +765,37 @@ bool VerifySyntax(
                         guide_token = dummy_token;
                     }
                     break;
-                }
+                case TOKEN_ARITHC:
+                case TOKEN_ARITHS:
+                {
+                    if (t.kind == TOKEN_ARITHC) {
+                        switch (t.number) {
+                        case AC_PE: 
+                            it++;
+                            if (VerifyCalcSyntax(tokens, pProcessedData, it, proc_kind, const_map, false)) {
+                                if (tokens[it].number == AC_PL) {
 
+                                }
+                            }
+                            break;
+                        default:
+                        case AC_PL: throw t;
+                        }
+                    }
+                    else if (t.kind == TOKEN_ARITHS && t.number == AS_SUB) {
+                        it--;
+                    }
+                    else if (VerifyCalcSyntax(tokens, pProcessedData, --it, proc_kind, const_map, false)) {
+                        possible_tokens[0] = TOKEN_IDENTIFIER;
+                        possible_tokens[1] = TOKEN_COMMAND;
+                        possible_tokens[2] = TOKEN_KEYWORD;
+                        num_possible = 3;
+                        guide_token = dummy_token;
+                    }
+                    else throw t;
+                }break;
             }
-            else {
-                printf("An error has ocurred L: %d\n", t.line);
-                raise_error = true;
-                break;
-            }
+
         }
         catch (const Token& t) {
             printf("Invalid token in line %d @ %s\n", t.line, t.source);
