@@ -13,6 +13,14 @@ enum TOKEN_KIND {
 	TOKEN_STRING, // Words between quotes like "TEX_YUUKA"
 	TOKEN_COMMA, // the comma for separating things
 	TOKEN_DOTS, // the comma for separating things
+	TOKEN_ARITHS,
+	TOKEN_ARITHF,
+	TOKEN_ARITHC,
+	TOKEN_REGISTER,
+	TOKEN_BEGINPARENTHESIS,
+	TOKEN_ENDPARENTHESIS,
+	TOKEN_BEGINBLOCK,
+	TOKEN_ENDBLOCK,
 
 	//Extra tokens to make some stuff faster to process, i think
 	TOKEN_PROC, //This holds the name of the procedure
@@ -20,19 +28,71 @@ enum TOKEN_KIND {
 	TOKEN_LABEL, //the name of a label
 	TOKEN_INCOUNT, //number of instructions to read
 	TOKEN_CONST, //has the name of a const
+	TOKEN_ARITHBEG, //has the name of a const
+	TOKEN_ARITHEND, //has the name of a const
 
 	//TOKEN_COMMENT, // ; as comment, like in a real assembler (Never touched one lol)
 };
 
+enum ARITHMETIC_SYMBOL {
+	AS_ASSIGN, // var = ...
+
+	AS_ADD, //var + var
+	AS_SUB, //var - var
+	AS_MUL, //var * var
+	AS_DIV, //var / var
+	AS_MOD, //var % var
+
+	AS_INC, //var++
+	AS_DEC, //var--
+
+	AS_ADDA, //var += var
+	AS_SUBA, //var -= var
+	AS_MULA, //var *= var
+	AS_DIVA, //var /= var
+	AS_MODA, //var %= var
+
+	AS_EQU, //var == var
+	AS_NOTEQU, //var != var
+	AS_LESS, //var < var
+	AS_LESSEQ, //var <= var
+	AS_GREAT, //var > var
+	AS_GREATEQ, //var >= var
+
+	AS_AND, //var && var
+	AS_OR, //var || var
+
+};
+
+enum ARITHMETIC_CONTROL {
+	AC_PE, // (
+	AC_PL, // )
+};
+
+enum ARITHMETIC_FUNCTION {
+	AF_MAX, //max(var, var)
+	AF_MIN, //min(var, var)
+	AF_RND, //rnd(var)
+	AF_ATAN, //atan(var, var)
+	AF_COSL, //cosl(var, var)
+	AF_SINL, //sinl(var, var)
+};
+
 enum KEYWORD_KIND {
+	KEY_GLOBAL,
 	KEY_PROC,
-	KEY_TEXINITPROC,
-	KEY_ENEMYPROC,
-	KEY_ATKPROC,
-	KEY_EXANMPROC,
-	KEY_SETPROC,
-	KEY_LOADTEXPROC,
+	KEY_TEXINIT,
+	KEY_ENEMY,
+	KEY_TSET,
+	KEY_EXANM,
+	KEY_SET,
+	KEY_EXTRATEX,
 	KEY_ENDPROC,
+
+	KEY_IF,
+	KEY_WHILE,
+	KEY_LOOP,
+
 	KEY_CONST,
 	KEY_INCLUDE,
 };
@@ -69,15 +129,110 @@ struct SourceInfo {
 	size_t line;
 };
 
+//Registers used on normal and enemy procedures
+static std::map<const std::string, int> g_EnemyRegs = {
+	{"x", 0},
+	{"y", 1},
+	{"vel", 2},
+	{"hp", 3},
+	{"count", 4},
+	{"score", 5},
+	{"gr0", 6},
+	{"gr1", 7},
+	{"gr2", 8},
+	{"gr3", 9},
+	{"gr4", 10},
+	{"gr5", 11},
+	{"gr6", 12},
+	{"gr7", 13},
+	{"flag", 14},
+	{"dir", 15},
+	{"alpha", 19},
+};
+
+//Registers used on TCL (tama(bullet) control language)
+static std::map<const std::string, int> g_AtkRegs = {
+	{"x", 0},
+	{"y", 1},
+	{"cmd", 2},
+	{"vel", 3},
+	{"acc", 4},
+	{"ang", 5}, //Separation for fans
+	{"ang2", 6}, //Angle separation between shots
+	{"cnt", 7},
+	{"cnt2", 8},
+	{"dir", 9},
+	{"vdir", 10},
+	{"color", 11},
+	{"type", 12},
+	{"option", 13},
+	{"anmspd", 14},
+	{"llength", 15},
+	{"gr0", 16},
+	{"gr1", 17},
+	{"gr2", 18},
+	{"gr3", 19},
+	{"gr4", 20},
+	{"gr5", 21},
+	{"gr6", 22},
+	{"gr7", 23},
+	{"parentdir", 24},
+	{"param", 26},
+};
+
+//Registers used on ExAnm
+static std::map<const std::string, int> g_ExAnmRegs = {
+	{"x", 0},
+	{"y", 1},
+	{"sx", 2},
+	{"sy", 3},
+	{"dir", 4},
+	{"alpha", 5}, //Separation for fans
+	{"spriteu", 6}, //Angle separation between shots
+	{"sprited", 7},
+	{"clipx", 8},
+	{"clipy", 9},
+	{"clipw", 10},
+	{"cliph", 11},
+	{"clipr", 12},
+	{"clipg", 13},
+	{"clipb", 14},
+	{"clipa", 15},
+	{"gr0", 16},
+	{"gr1", 17},
+	{"gr2", 18},
+	{"gr3", 19},
+	{"gr4", 20},
+	{"gr5", 21},
+	{"gr6", 22},
+	{"gr7", 23},
+	{"gr8", 24},
+	{"gr9", 25},
+};
+
+static std::map<const std::string, ARITHMETIC_FUNCTION> g_ArithFunc = {
+	{"cosl",AF_COSL},
+	{"sinl",AF_SINL},
+	{"atan",AF_ATAN},
+	{"min",AF_MIN},
+	{"max",AF_MAX},
+	{"rnd",AF_RND},
+};
+
 static std::map<const std::string, KEYWORD_KIND> g_Keystr2Tok = {
 	//Procedure types
 	{"PROC", KEY_PROC},
-	{"TEXINITPROC", KEY_TEXINITPROC},
-	{"ENEMY", KEY_ENEMYPROC},
-	{"TSET", KEY_ATKPROC},
-	{"EXANM", KEY_EXANMPROC},
-	{"SETPROC", KEY_SETPROC},
-	{"LOADTEXPROC", KEY_LOADTEXPROC},
+	{"TEXINITPROC", KEY_TEXINIT},
+	{"ENEMY", KEY_ENEMY},
+	{"TSET", KEY_TSET},
+	{"EXANM", KEY_EXANM},
+	{"SETPROC", KEY_SET},
+	{"LOADTEXPROC", KEY_EXTRATEX},
+
+	//Conditions and loops (lol)
+	{"if", KEY_IF},
+	{"while", KEY_WHILE},
+	{"loop", KEY_LOOP},
 
 	//Other Keywords
 	{"ENDPROC", KEY_ENDPROC},
@@ -88,6 +243,7 @@ static std::map<const std::string, KEYWORD_KIND> g_Keystr2Tok = {
 typedef std::vector<SCL_INSTRUCTION> valid_instruction_set;
 typedef std::vector<SCLInstructionDataEx> ins_data;
 typedef std::unordered_map<std::string, ProcDataEx2> address_map_ex;
+typedef std::map<const std::string, Token> constant_map;
 
 static valid_instruction_set g_ControlFlow = {
 	//Control flow
@@ -191,14 +347,14 @@ static valid_instruction_set g_ExAnmCheck = {
 	SCR_EXIT,
 };
 
-static valid_instruction_set g_SetProcCheck = {
+static valid_instruction_set g_SetCheck = {
 	SCR_SET,
 	SCR_NOP,
 	SCR_EXIT
 };
 
 
-static valid_instruction_set g_TexLoadCheck = {
+static valid_instruction_set g_ExtraTexCheck = {
 	SCR_LOADEX,
 	SCR_RECT,
 	SCR_EXIT
@@ -224,9 +380,76 @@ bool IncludeSourceFile(
 );
 
 //Verify the syntax and try to make an easier to understand array to process data
-bool VerifySyntax(
+bool VerifySyntaxAndParse(
 	std::vector<Token>& tokens,
 	std::vector<Token>* pProcessedData
+);
+
+//Parse common stuff for comand data
+bool ProcessCommonCmdData(
+	std::vector<Token>& tokens,
+	std::vector<Token>* pProcessedData,
+	constant_map& const_map,
+	SCL_INSTRUCTION cmd,
+	SCL_INSTRUCTION& last_cmd,
+	KEYWORD_KIND proc_type,
+	size_t& idx
+);
+
+//Process if statemets, while loops and normal loops
+bool ProcessConditionOrLoopBlock(
+	std::vector<Token>& tokens,
+	std::vector<Token>* pProcessedData,
+	constant_map& const_map,
+	KEYWORD_KIND proc_kind,
+	KEYWORD_KIND type,
+	size_t& idx
+);
+
+//Process different kinds of blocks
+bool ProcessTexInitBlock(
+	std::vector<Token>& tokens,
+	std::vector<Token>* pProcessedData,
+	constant_map& const_map,
+	size_t& idx
+);
+
+bool ProcessEnemyBlock(
+	std::vector<Token>& tokens,
+	std::vector<Token>* pProcessedData,
+	constant_map& const_map,
+	size_t& idx,
+	int exit_type
+);
+
+bool ProcessTSetBlock(
+	std::vector<Token>& tokens,
+	std::vector<Token>* pProcessedData,
+	constant_map& const_map,
+	size_t& idx,
+	int exit_type
+);
+
+bool ProcessExAnmBlock(
+	std::vector<Token>& tokens,
+	std::vector<Token>* pProcessedData,
+	constant_map& const_map,
+	size_t& idx,
+	int exit_type
+);
+
+bool ProcessSetBlock(
+	std::vector<Token>& tokens,
+	std::vector<Token>* pProcessedData,
+	constant_map& const_map,
+	size_t& idx
+);
+
+bool ProcessExtraTexBlock(
+	std::vector<Token>& tokens,
+	std::vector<Token>* pProcessedData,
+	constant_map& const_map,
+	size_t& idx
 );
 
 //Calculate addresses and parse command data

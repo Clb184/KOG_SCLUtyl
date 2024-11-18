@@ -5,6 +5,7 @@ auto printinst = [](const SCLInstructionData& data) {
 	int mx = data.cnt - 1;
 	printf("%s ", g_InstructionSize[data.cmd].name);
 	for (int i = 0; i <= mx; i++) {
+		if (data.cmd == SCR_ANIME && i == 2) continue;
 		SCL_DATATYPE datatype = data.param[i].datatype;
 		switch (datatype) {
 		case ADDRESS:
@@ -330,8 +331,8 @@ void PrintSCL() {
 			default: ref = "\nPROC "; break;
 			}
 			if (proc_cnt > 0)
-				printf("ENDPROC\n");
-			std::cout << ref << it->second.name << "\n";
+				printf("}\n");
+			std::cout << ref << it->second.name << " {\n";
 			it++;
 			proc_cnt++;
 		}
@@ -341,5 +342,5 @@ void PrintSCL() {
 		}
 		printf("\t"); printinst(i); printf("\n");
 	}
-	printf("ENDPROC\n");
+	printf("}\n");
 }

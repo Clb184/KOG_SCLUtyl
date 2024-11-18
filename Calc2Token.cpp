@@ -1,25 +1,53 @@
 #include "Calc2Token.h"
 
-bool VerifyCalcSyntax(
+bool CalcConvert(
 	std::vector<Token>& from,
 	std::vector<Token>* to,
 	size_t& idx,
 	KEYWORD_KIND proc,
     constant_map& const_map,
-    bool constant_exp,
-    int num_args
+    bool save_ret
 )
 {
     bool success = false;
     std::deque<Token> toks;
     int receiver = -1;
-    if (Calc2Token(from, toks, idx, proc, const_map, constant_exp, receiver, num_args)) {
-        if(PresolveTokens(toks))
-            if(Token2ProcessedData(to, toks, receiver))
-                success = true;
+    if (Calc2Token(from, toks, idx, proc, const_map, false, receiver, 1)) {
+        if ((save_ret && receiver != -1) || (!save_ret && receiver == -1) && toks.size() > 0) {
+            if (PresolveTokens(toks)) {
+                if (Token2ProcessedData(to, toks, receiver))
+                    success = true;
+            }
+        }
     }
     return success;
 }
+
+bool CalcConvertConst(
+    std::vector<Token>& from,
+    std::vector<Token>* to,
+    size_t& idx,
+    KEYWORD_KIND proc,
+    constant_map& const_map,
+    int& result
+)
+{
+    bool success = false;
+    std::deque<Token> toks;
+    int receiver = -1;
+    if (Calc2Token(from, toks, idx, proc, const_map, true, receiver, 1)) {
+        if (receiver == -1) {
+            if (PresolveTokens(toks)) {
+                if (toks.size() == 1 && toks[0].kind == TOKEN_NUMBER) {
+                    result = toks[0].number;
+                    success = true;
+                }
+            }
+        }
+    }
+    return success;
+}
+
 
 bool Calc2Token(
     std::vector<Token>& from, 
@@ -40,6 +68,8 @@ bool Calc2Token(
     int fn = -1;
     std::deque<Token> nums;
     std::stack<Token> syms;
+    std::stack<Token> conds;
+    std::stack<Token> andor;
 
     int args = 1;
 
@@ -50,6 +80,8 @@ bool Calc2Token(
     bool exit_op = false;
     int nnums = 0;
     int nsyms = 0;
+    int nconds = 0;
+    int nandor = 0;
     bool negate = false;
 
     try {
@@ -66,34 +98,45 @@ bool Calc2Token(
                 }
 
             {
-                bool found_identifier = false;
+                bool found_register = false;
                 switch (proc_kind) {
                 case KEY_PROC:
-                case KEY_ENEMYPROC:
+                case KEY_ENEMY:
                     if (g_EnemyRegs.find(t.pStr) != g_EnemyRegs.end()) {
                         t.number = g_EnemyRegs[t.pStr];
-                        found_identifier = true;
+                        found_register = true;
                     }
                     break;
-                case KEY_ATKPROC:
+                case KEY_TSET:
                     if (g_AtkRegs.find(t.pStr) != g_AtkRegs.end()) {
                         t.number = g_AtkRegs[t.pStr];
-                        found_identifier = true;
+                        found_register = true;
                     }
                     break;
-                case KEY_EXANMPROC:
+                case KEY_EXANM:
                     if (g_ExAnmRegs.find(t.pStr) != g_ExAnmRegs.end()) {
                         t.number = g_ExAnmRegs[t.pStr];
-                        found_identifier = true;
+                        found_register = true;
                     }
                     break;
                 }
-                if (!found_identifier) {
+                if (!found_register) {
                     if (const_map.find(t.pStr) != const_map.end()) {
                         auto& tkk = const_map[t.pStr];
+                        int line = t.line;
+                        const char* source = t.source;
                         t = tkk;
+                        t.line = line;
+                        t.source = source;
                         nums.push_back(t);
                         nnums++;
+                        if (negate) {
+                            Token ng;
+                            ng.kind = TOKEN_COMMAND;
+                            ng.number = SCR_NEG;
+                            nums.push_back(ng);
+                            negate = false;
+                        }
                         expected_tokens[0] = TOKEN_ARITHS;
                         expected_tokens[1] = TOKEN_COMMA;
                         num_expected = 2;
@@ -106,6 +149,13 @@ bool Calc2Token(
                     t.kind = TOKEN_REGISTER;
                     nums.push_back(t);
                     nnums++;
+                    if (negate) {
+                        Token ng;
+                        ng.kind = TOKEN_COMMAND;
+                        ng.number = SCR_NEG;
+                        nums.push_back(ng);
+                        negate = false;
+                    }
                     expected_tokens[0] = TOKEN_ARITHS;
                     expected_tokens[1] = TOKEN_COMMA;
                     num_expected = 2;
@@ -131,10 +181,9 @@ bool Calc2Token(
                         args = 1; break;
                     }
             } break;
-            case TOKEN_ARITHC:
-                if (t.number == AC_PE) {
-                    if (Calc2Token(from, nums, ++i, proc, const_map, constant_exp, receiver, args)) {
-                        if (from[i].number != AC_PL) throw from[i];
+            case TOKEN_BEGINPARENTHESIS:
+                if (Calc2Token(from, nums, ++i, proc, const_map, constant_exp, receiver, args)) {
+                        if (from[i].kind != TOKEN_ENDPARENTHESIS) throw from[i];
                         else {
                             if (fn != -1) {
                                 Token cmd2;
@@ -151,6 +200,13 @@ bool Calc2Token(
                                 fn = -1;
                             }
                             nnums++;
+                            if (negate) {
+                                Token ng;
+                                ng.kind = TOKEN_COMMAND;
+                                ng.number = SCR_NEG;
+                                nums.push_back(ng);
+                                negate = false;
+                            }
                             expected_tokens[0] = TOKEN_ARITHS;
                             expected_tokens[1] = TOKEN_COMMA;
                             num_expected = 2;
@@ -160,19 +216,12 @@ bool Calc2Token(
                         }
                     }
                     else throw t;
+                break;
 
-                }
-                else if (t.number == AC_PL) {
-                    if (num_args != 1) throw t;
-                    idx = i;
-                    exit_op = true;
-                    break;
-                }
-                else throw t;
-
-                if (guide_token.kind == TOKEN_ARITHF) {
-
-                }
+            case TOKEN_ENDPARENTHESIS:
+                if (num_args != 1) throw t;
+                idx = i;
+                exit_op = true;
                 break;
             case TOKEN_ARITHS:
                 if (t.number == AS_ASSIGN) {
@@ -186,30 +235,58 @@ bool Calc2Token(
                     switch (t.number) {
                     case AS_SUB:
                         if (nnums == nsyms) {
-                            Token ng;
-                            ng.kind = TOKEN_COMMAND;
-                            ng.number = SCR_NEG;
-                            syms.push(ng);
+                            negate = true;
                             break;
                         }
                     case AS_ADD:
+                        while(!syms.empty()) {
+                            nums.emplace_back(syms.top());
+                            syms.pop();
+                        }
+                    case AS_MUL:
+                    case AS_DIV:
+                    case AS_MOD:
+                        syms.push(t);
+                        nsyms++;
+                        break;
+
                     case AS_EQU:
                     case AS_NOTEQU:
                     case AS_LESS:
                     case AS_LESSEQ:
                     case AS_GREAT:
                     case AS_GREATEQ:
-                        while(!syms.empty()) {
-                            nums.emplace_back(syms.top());
-                            syms.pop();
+                        to.insert(to.begin() + to.size(), nums.begin(), nums.end());
+                        nums.clear();
+                        nnums = 0;
+                        nsyms = 0;
+                        if (!conds.empty()) {
+                            to.emplace_back(conds.top());
+                            conds.pop();
+                            nconds--;
                         }
+                        conds.push(t);
+                        nconds++;
+                        break;
+
                     case AS_AND:
                     case AS_OR:
-                    case AS_MUL:
-                    case AS_DIV:
-                    case AS_MOD:
-                        syms.push(t);
-                        nsyms++;
+                        to.insert(to.begin() + to.size(), nums.begin(), nums.end());
+                        nums.clear();
+                        nnums = 0;
+                        nsyms = 0;
+                        while (!conds.empty()) {
+                            to.emplace_back(conds.top());
+                            conds.pop();
+                            nconds--;
+                        }
+                        {
+                            Token ope;
+                            ope.kind = TOKEN_COMMAND;
+                            ope.number = (t.number == AS_AND) ? SCR_MIN : SCR_MAX; 
+                            andor.push(ope);
+                            nandor++;
+                        }
                         break;
                     default:
                         break;
@@ -223,11 +300,18 @@ bool Calc2Token(
                 guide_token = dummy_token;
                 break;
             case TOKEN_NUMBER:
+                nums.emplace_back(t);
+                nnums++;
+                if (negate) {
+                    Token ng;
+                    ng.kind = TOKEN_COMMAND;
+                    ng.number = SCR_NEG;
+                    nums.push_back(ng);
+                    negate = false;
+                }
                 expected_tokens[0] = TOKEN_ARITHS;
                 expected_tokens[1] = TOKEN_COMMA;
                 num_expected = 2;
-                nums.emplace_back(t);
-                nnums++;
                 guide_token = t;
                 break;
             case TOKEN_COMMA:
@@ -241,6 +325,8 @@ bool Calc2Token(
                     }
                     nnums = 0;
                     nsyms = 0;
+                    nconds = 0;
+                    to.emplace_back(t);
                     expected_tokens[0] = TOKEN_ARITHC;
                     expected_tokens[1] = TOKEN_ARITHF;
                     expected_tokens[2] = TOKEN_NUMBER;
@@ -248,7 +334,7 @@ bool Calc2Token(
                     num_expected = 4;
                     guide_token = dummy_token;
                 }
-                else throw t;
+                else exit_op = true;
                 break;
             default:
                 if (num_args != 1) throw t;
@@ -260,6 +346,16 @@ bool Calc2Token(
                 while (!syms.empty()) {
                     to.emplace_back(syms.top());
                     syms.pop();
+                }
+                if (!conds.empty()) {
+                    to.emplace_back(conds.top());
+                    conds.pop();
+                    nconds--;
+                }
+                if (!andor.empty()) {
+                    to.emplace_back(andor.top());
+                    andor.pop();
+                    nandor--;
                 }
                 idx = i;
                 break;
@@ -281,34 +377,52 @@ bool PresolveTokens(std::deque<Token>& toks) {
     int size = toks.size();
 
     std::stack<Token> stk;
+    int num = 0;
     std::deque<Token> res;
+    int neg = 0;
+
     try {
         for (auto& t : toks) {
             switch (t.kind) {
-            case TOKEN_REGISTER:
             case TOKEN_NUMBER:
                 stk.push(t);
+                num++;
+                break;
+            case TOKEN_REGISTER:
+                if (num > 0) {
+                    res.push_back(stk.top());
+                    stk.pop();
+                    num--;
+                }
+                res.push_back(t);
                 break;
             case TOKEN_ARITHS:
                 {
-                    bool solved = false;
-                    Token p1 = stk.top();
-                    stk.pop();
-                    if (stk.top().kind == p1.kind && p1.kind == TOKEN_NUMBER) {
+                    if (num >= 2) {
+                        Token p1 = stk.top();
+                        stk.pop();
                         switch (t.number) {
                             case AS_ADD: stk.top().number += p1.number; break;
                             case AS_SUB: stk.top().number -= p1.number; break;
                             case AS_MUL: stk.top().number *= p1.number; break;
                             case AS_DIV: stk.top().number /= p1.number; break;
                             case AS_MOD: stk.top().number %= p1.number; break;
+
+                            case AS_EQU: stk.top().number = stk.top().number == p1.number; break;
+                            case AS_NOTEQU: stk.top().number = stk.top().number != p1.number; break;
+                            case AS_GREAT: stk.top().number = stk.top().number > p1.number; break;
+                            case AS_GREATEQ: stk.top().number = stk.top().number >= p1.number; break;
+                            case AS_LESS: stk.top().number = stk.top().number < p1.number; break;
+                            case AS_LESSEQ: stk.top().number = stk.top().number <= p1.number; break;
                         }
+                        num--;
                     }
                     else {
-                        while (!stk.empty()) {
-                            res.push_back(stk.top());
+                        if (num > 0) {
+                            res.emplace_back(stk.top());
                             stk.pop();
+                            num--;
                         }
-                        res.push_back(p1);
                         res.push_back(t);
                     }
                 }
@@ -322,38 +436,29 @@ bool PresolveTokens(std::deque<Token>& toks) {
                 case SCR_MIN:
                 case SCR_MAX:
                 case SCR_ATAN: {
-                    Token p1 = stk.top();
-                    stk.pop();
-                    while (!stk.empty()) {
-                        res.push_back(stk.top());
-                        stk.pop();
-                    }
-                    res.push_back(p1);
                     res.push_back(t);
                 }break;
                 case SCR_RND:
-                    while (!stk.empty()) {
-                        res.push_back(stk.top());
-                        stk.pop();
-                    }
                     res.push_back(t);
                     break;
                 case SCR_NEG:
-                    if (stk.top().kind == TOKEN_NUMBER) {
+                    if (num > 0) {
                         Token& tk = stk.top();
                         tk.number = -tk.number;
                     }
                     else {
-                        while (!stk.empty()) {
-                            res.push_back(stk.top());
-                            stk.pop();
-                        }
                         res.push_back(t);
                     }
                     break;
                 }
-            }
-            break;
+            } break;
+            case TOKEN_COMMA:
+                if (num > 0) {
+                    res.emplace_back(stk.top());
+                    stk.pop();
+                    num = 0;
+                }
+                break;
             }
         }
     }
@@ -361,9 +466,11 @@ bool PresolveTokens(std::deque<Token>& toks) {
         success = false;
     }
     if (success) {
+        if (num > 0) {
+            res.emplace_back(stk.top());
+        }
         toks = res;
     }
-
     return success;
 }
 
@@ -423,7 +530,7 @@ bool Token2ProcessedData(std::vector<Token>* to, const std::deque<Token>& toks, 
 
             Token n = tok;
             n.kind = TOKEN_NUMBER;
-            n.advance = 4;
+            n.advance = 1;
 
             printf("Reg: %s\n", n.pStr.c_str());
             to->emplace_back(cmd);

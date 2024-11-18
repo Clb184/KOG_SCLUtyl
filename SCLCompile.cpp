@@ -1,6 +1,10 @@
 #include "SCLCompile.h"
 #include "Calc2Token.h"
 
+static int g_IfCnt = 0;
+static int g_WhileCnt = 0;
+static int g_LoopCnt = 0;
+
 inline bool IsValidKeyword(const std::string& word, int* pint) {
     if (g_Keystr2Tok.find(word) != g_Keystr2Tok.end()) {
         *pint = g_Keystr2Tok[word];
@@ -198,7 +202,7 @@ bool CompileSCL(const char* Name, const char* Header, const char* OutputName) {
         std::vector<std::string> procname_data;
         InitializeString2Command();
         if (TokenizeInput(Name, &tok_data)) {
-            if (VerifySyntax(tok_data, &processed_token)) {
+            if (VerifySyntaxAndParse(tok_data, &processed_token)) {
                 if (CalculateAddresses(processed_token, &proc_data, &bin_size, procname_data)) {
                     if (PopulateAddresses(proc_data)) {
                         if (ProcessHeader(Header, proc_data, &head)) {
@@ -380,29 +384,15 @@ bool IncludeSourceFile(const char* pSourceFile, std::vector<Token>& source, size
     return success;
 }
 
-bool VerifySyntax(
+bool VerifySyntaxAndParse(
     std::vector<Token>& tokens,
     std::vector<Token>* pProcessedData
 )
 {
     //Something went wrong or not
     bool raise_error = false;
-    //For resetting the guide
-    Token dummy_token = { TOKEN_IGNORE };
-    //This is used as a guide on what to do, following certain rules
-    Token guide_token = dummy_token;
-
-    //This stores what token are needed
-    int num_possible = 1;
-    TOKEN_KIND possible_tokens[9] = {TOKEN_KEYWORD};
-    //Used to look at reference for arguments
-    SCLInstructionDefine def;
-    int arg_idx = 0;
     //Activated by ANIME which needs an array
     bool anime = false;
-    //Activated when entering a subroutine
-    bool on_sub = false;
-    KEYWORD_KIND proc_kind;
 
     //Constants got by the const keyword
     constant_map const_map;
@@ -410,408 +400,883 @@ bool VerifySyntax(
     Token LabName { TOKEN_PROC, 0, ""};
     Token* pAnimP = nullptr;
     int ident_size = 0;
+    size_t size = tokens.size();
 
-
-    for (size_t it = 0; it < tokens.size(); it++) {
-        auto& t = tokens[it];
+    for (size_t i = 0; i < size; ) {
+        auto& t = tokens[i];
         try {
-            for (int i = 0; i <= num_possible; i++) {
-                if (i >= num_possible) throw t;
-                else if (t.kind == possible_tokens[i]) break;
-                
-            }
-
-                switch (t.kind) {
-                case TOKEN_KEYWORD:
-                    switch (t.number) {
-                    case KEY_ENEMYPROC:
-                    case KEY_ATKPROC:
-                    case KEY_SETPROC:
-                    case KEY_EXANMPROC:
-                    case KEY_TEXINITPROC:
-                    case KEY_LOADTEXPROC:
-                    case KEY_PROC:
-                        if (on_sub) throw t;
-                        possible_tokens[0] = TOKEN_IDENTIFIER;
-                        num_possible = 1;
-                        on_sub = true;
-                        guide_token = t;
-                        break;
-                    case KEY_CONST:
-                        possible_tokens[0] = TOKEN_IDENTIFIER;
-                        num_possible = 1;
-                        guide_token = t;
-                        break;
-                    case KEY_INCLUDE:
-                        possible_tokens[0] = TOKEN_STRING;
-                        num_possible = 1;
-                        guide_token = t;
-                        break;
-                    case KEY_ENDPROC:
-                        if (!on_sub) throw t;
-                        possible_tokens[2] = TOKEN_KEYWORD;
-                        num_possible = 3;
-                        guide_token = dummy_token;
-                        on_sub = false;
-                        {
-                            Token tmp{TOKEN_ENDPROC};
-                            pProcessedData->emplace_back(tmp);
-                        }
-                        break;
-                    default:
-                        throw t;
-                    }
-                    break;
-                case TOKEN_IDENTIFIER:
-                    switch (guide_token.kind) {
-                    case TOKEN_COMMAND:
-                        if (!on_sub) throw t;
-                        {
-                            SCL_DATATYPE datat = def.paramdatatype[arg_idx];
-                            Token tk = t;
-                            if (datat != ADDRESS) {
-                                if (const_map.find(t.pStr) != const_map.end()) {
-                                    //Expand constant data
-                                    size_t of = 0;
-                                    const Token& tok = const_map[t.pStr];
-                                    switch (datat) {
-                                    case U32: case I32: 
-                                        if (tok.kind == TOKEN_NUMBER) { 
-                                            of += 2;
-                                        }
-                                        else throw t;
-                                    case U16: case I16: 
-                                        if (tok.kind == TOKEN_NUMBER) { 
-                                            of++;
-                                        }
-                                        else throw t;
-                                    case U8: case I8:  
-                                        if (tok.kind == TOKEN_NUMBER) {
-                                            of++;
-                                            tk.number = tok.number;
-                                        }
-                                        else throw t; break;
-                                    case STRING: 
-                                        if (tok.kind == TOKEN_STRING) {
-                                            of = tok.pStr.length() + 1;
-                                            tk.pStr = tok.pStr;
-                                        }
-                                        else throw t; break;
-                                    }
-                                    tk.kind = tok.kind;
-                                    tk.advance = of;
-                                    pProcessedData->emplace_back(tk);
-                                }
-                            }
-                            else {
-                                tk.advance = 4;
-                                pProcessedData->emplace_back(tk);
-                            }
-                            if (arg_idx < def.cnt) {
-                                possible_tokens[0] = TOKEN_COMMA;
-                                num_possible = 1;
-                            }
-                            else {
-                                possible_tokens[0] = TOKEN_IDENTIFIER;
-                                possible_tokens[1] = TOKEN_COMMAND;
-                                possible_tokens[2] = TOKEN_KEYWORD;
-                                num_possible = 3;
-                                guide_token = dummy_token;
-                            }
-                        }
-                        break;
-                    case TOKEN_KEYWORD:
-                        switch (guide_token.number) {
-                        case KEY_ENEMYPROC:
-                        case KEY_ATKPROC:
-                        case KEY_SETPROC:
-                        case KEY_EXANMPROC:
-                        case KEY_TEXINITPROC:
-                        case KEY_LOADTEXPROC:
-                        case KEY_PROC:
-                            possible_tokens[0] = TOKEN_IDENTIFIER;
-                            possible_tokens[1] = TOKEN_COMMAND;
-                            possible_tokens[2] = TOKEN_KEYWORD;
-                            num_possible = 3;
-                            proc_kind = (KEYWORD_KIND)guide_token.number;
-                            {
-                                Token tmp = { TOKEN_PROC, guide_token.number, t.pStr };
-                                pProcessedData->emplace_back(tmp);
-                            }
-                            guide_token = dummy_token;
-                            break;
-                        case KEY_CONST:
-                            possible_tokens[0] = TOKEN_NUMBER;
-                            possible_tokens[1] = TOKEN_STRING;
-                            guide_token.pStr = t.pStr;
-                            num_possible = 2;
-                            break;
-                        default:
-                            throw t;
-                        }
-                        break;
-                    default:
-                        throw t;
-                    case TOKEN_IGNORE:
-                        if (!on_sub) throw t;
-                        if (g_ArithFunc.find(t.pStr) != g_ArithFunc.end()) {
-                            possible_tokens[0] = TOKEN_ARITHC;
-                            num_possible = 1;
-                            guide_token = t;
-                        }
-                        else {
-                            possible_tokens[0] = TOKEN_DOTS;
-                            possible_tokens[1] = TOKEN_ARITHS;
-                            num_possible = 2;
-                            guide_token = t;
-                        }
-                        break;
-                    }
-                    break;
-                case TOKEN_COMMAND:
-                    if (!on_sub) throw t;
-                    {
-                        bool is_correct_instruction = false;
-                        switch (proc_kind) {
-                        case KEY_TEXINITPROC:
-                            for (auto& c : g_TexInitCheck) {
-                                if (t.number == c) {
-                                    is_correct_instruction = true;
-                                    break;
-                                }
-                            }break;
-                        case KEY_PROC:
-                        case KEY_ENEMYPROC:
-                            for (auto& c : g_ControlFlow) {
-                                if (t.number == c) {
-                                    is_correct_instruction = true;
-                                    break;
-                                }
-                            }
-                            for (auto& c : g_EnemyCheck) {
-                                if (t.number == c) {
-                                    is_correct_instruction = true;
-                                    break;
-                                }
-                            }break;
-
-                        case KEY_ATKPROC:
-                            for (auto& c : g_ControlFlow) {
-                                if (t.number == c) {
-                                    is_correct_instruction = true;
-                                    break;
-                                }
-                            }
-                            for (auto& c : g_TSetCheck) {
-                                if (t.number == c) {
-                                    is_correct_instruction = true;
-                                    break;
-                                }
-                            }break;
-
-                        case KEY_EXANMPROC:
-                            for (auto& c : g_ControlFlow) {
-                                if (t.number == c) {
-                                    is_correct_instruction = true;
-                                    break;
-                                }
-                            }
-                            for (auto& c : g_ExAnmCheck) {
-                                if (t.number == c) {
-                                    is_correct_instruction = true;
-                                    break;
-                                }
-                            }break;
-                        case KEY_SETPROC:
-                            for (auto& c : g_SetProcCheck) {
-                                if (t.number == c) {
-                                    is_correct_instruction = true;
-                                    break;
-                                }
-                            }break;
-                        case KEY_LOADTEXPROC:
-                            for (auto& c : g_TexLoadCheck) {
-                                if (t.number == c) {
-                                    is_correct_instruction = true;
-                                    break;
-                                }
-                            }break;
-                        } 
-                        if (!is_correct_instruction)
-                            throw t;
-                    }
-                    def = g_InstructionSize[(SCL_INSTRUCTION)t.number];
-                    guide_token = t;
-                    arg_idx = 1;
-                    {
-                        Token args;
-                        args.kind = TOKEN_INCOUNT;
-                        SCL_DATATYPE req;
-                        switch (t.number) {
-                        case SCR_LOAD:
-                        case SCR_PARENT:
-                        case SCR_PUSHR:
-                        case SCR_POPR: {
-                            SCL_DATATYPE d = def.paramdatatype[1];
-                            def.paramdatatype[1] = def.paramdatatype[0];
-                            def.paramdatatype[0] = d;
-                        }break;
-                        case SCR_ATK:
-                            break;
-                        case SCR_ANIME:
-                            anime = true;
-                        }
-                        if (def.cnt > 1) {
-                            req = def.paramdatatype[1];
-
-                            possible_tokens[0] = (req >= U8 && req <= I32) ? TOKEN_NUMBER : (req == STRING) ? TOKEN_STRING : (req == ADDRESS) ? TOKEN_IDENTIFIER : TOKEN_IGNORE;
-                            possible_tokens[1] = TOKEN_IDENTIFIER;
-                            num_possible = 2;
-                            def.cnt--;
-                            args.number = def.cnt;
-                        }
-                        else {
-                            possible_tokens[0] = TOKEN_IDENTIFIER;
-                            possible_tokens[1] = TOKEN_COMMAND;
-                            possible_tokens[2] = TOKEN_KEYWORD;
-                            num_possible = 3;
-                            guide_token = dummy_token;
-                            args.number = 0;
-                        }
-                        pProcessedData->emplace_back(t);
-                        pProcessedData->emplace_back(args);
-                            
-                    }
-                    break;
-                case TOKEN_NUMBER:
-                case TOKEN_STRING:
-                    if (guide_token.number == KEY_CONST) {
-                        const_map.insert({ guide_token.pStr, t });
-                        possible_tokens[0] = TOKEN_IDENTIFIER;
-                        possible_tokens[1] = TOKEN_COMMAND;
-                        possible_tokens[2] = TOKEN_KEYWORD;
-                        num_possible = 3;
-                        guide_token = dummy_token;
-                    }
-                    else if (guide_token.number == KEY_INCLUDE && t.kind == TOKEN_STRING) {
-                        if (IncludeSourceFile(t.pStr.c_str(), tokens, it + 1)) {
-                            possible_tokens[0] = TOKEN_IDENTIFIER;
-                            possible_tokens[1] = TOKEN_COMMAND;
-                            possible_tokens[2] = TOKEN_KEYWORD;
-                            num_possible = 3;
-                            guide_token = dummy_token;
-                        }
-                        else throw SourceInfo{ t.source, t.pStr.c_str(),  t.line};
-                    }
-                    else if (guide_token.kind == TOKEN_COMMAND) {
-                        if (anime && arg_idx == 2) {
-                            def.cnt += t.number;
-                            (pProcessedData->end() - 2)->number += t.number;
-                            for (int i = 0; i < t.number; i++) {
-                                def.paramdatatype.emplace_back(U8);
-                            }
-                        }
-                        if (arg_idx < def.cnt) {
-                            possible_tokens[0] = TOKEN_COMMA;
-                            num_possible = 1;
-                        }
-                        else {
-                            if (anime) anime = false;
-                            possible_tokens[0] = TOKEN_IDENTIFIER;
-                            possible_tokens[1] = TOKEN_COMMAND;
-                            possible_tokens[2] = TOKEN_KEYWORD;
-                            num_possible = 3;
-                            guide_token = dummy_token;
-                        }
-                        size_t of = 0;
-                        if (t.kind == TOKEN_NUMBER) {
-                            switch (def.paramdatatype[arg_idx]) {
-                            case U32: case I32: of = 4; break;
-                            case U16: case I16: of = 2; break;
-                            case U8: case I8: of = 1; break;
-                            }
-                        }
-                        else if (t.kind == TOKEN_STRING) {
-                            of = t.pStr.length() + 1;
-                        }
-                        Token tmp = t;
-                        tmp.advance = of;
+            if (t.kind == TOKEN_KEYWORD) {
+                switch (t.number) {
+                case KEY_TEXINIT:
+                case KEY_PROC:
+                case KEY_ENEMY:
+                case KEY_TSET:
+                case KEY_EXANM:
+                case KEY_EXTRATEX:
+                case KEY_SET:
+                    if (i + 2 < tokens.size() && tokens[i + 1].kind == TOKEN_IDENTIFIER) {
+                        i++;
+                        Token tmp = { TOKEN_PROC, t.number, tokens[i].pStr };
                         pProcessedData->emplace_back(tmp);
-                    }
-                    else {
-                        possible_tokens[0] = TOKEN_ARITHS;
-                        possible_tokens[1] = TOKEN_ARITHF;
-                        num_possible = 2;
-                    }
-                    break;
-                case TOKEN_COMMA:
-                    if (guide_token.kind == TOKEN_COMMAND) {
-                        arg_idx++;
-                        SCL_DATATYPE req = def.paramdatatype[arg_idx];
-                        possible_tokens[0] = (req >= U8 && req <= I32) ? TOKEN_NUMBER : (req == STRING) ? TOKEN_STRING : (req == ADDRESS) ? TOKEN_IDENTIFIER : TOKEN_IGNORE;
-                        possible_tokens[1] = TOKEN_IDENTIFIER;
-                        num_possible = 2;
-                    }
-                    else  throw t;
-                    break;
-                case TOKEN_DOTS:
-                    if (guide_token.kind == TOKEN_IDENTIFIER) {
-                        possible_tokens[0] = TOKEN_IDENTIFIER;
-                        possible_tokens[1] = TOKEN_COMMAND;
-                        possible_tokens[2] = TOKEN_KEYWORD;
-                        num_possible = 3;
-                        Token tmp { TOKEN_LABEL, 0, guide_token.pStr };
-                        pProcessedData->emplace_back(tmp);
-                        guide_token = dummy_token;
-                    }
-                    break;
-                case TOKEN_ARITHC:
-                case TOKEN_ARITHS:
-                {
-                    if (t.kind == TOKEN_ARITHC) {
-                        switch (t.number) {
-                        case AC_PE: 
-                            it++;
-                            if (VerifyCalcSyntax(tokens, pProcessedData, it, proc_kind, const_map, false)) {
-                                if (tokens[it].number == AC_PL) {
-
-                                }
+                        if (tokens[i + 1].kind == TOKEN_BEGINBLOCK) {
+                            i += 2;
+                            bool parse_success = false;
+                            switch (t.number) {
+                            case KEY_TEXINIT: parse_success = ProcessTexInitBlock(tokens, pProcessedData, const_map, i); break;
+                            case KEY_PROC: parse_success = ProcessEnemyBlock(tokens, pProcessedData, const_map, i, 2); break;
+                            case KEY_ENEMY: parse_success = ProcessEnemyBlock(tokens, pProcessedData, const_map, i, 0); break;
+                            case KEY_TSET: parse_success = ProcessTSetBlock(tokens, pProcessedData, const_map, i, 0); break;
+                            case KEY_EXANM: parse_success = ProcessExAnmBlock(tokens, pProcessedData, const_map, i, 0); break;
+                            case KEY_EXTRATEX: parse_success = ProcessExtraTexBlock(tokens, pProcessedData, const_map, i); break;
+                            case KEY_SET: parse_success = ProcessSetBlock(tokens, pProcessedData, const_map, i); break;
                             }
-                            break;
-                        default:
-                        case AC_PL: throw t;
+                            if (!parse_success) throw 1;
                         }
+                        else throw tokens[i + 1];
                     }
-                    else if (t.kind == TOKEN_ARITHS && t.number == AS_SUB) {
-                        it--;
+                    else throw 0;
+                    break;
+                case KEY_CONST:
+                    if (i + 2 < tokens.size() && tokens[i + 1].kind == TOKEN_IDENTIFIER) {
+                        i++;
+                        Token tmp = { TOKEN_PROC, tokens[i + 1].line };
+                        const std::string& str = tokens[i].pStr;
+                        i++;
+                        switch (tokens[i].kind) {
+                        case TOKEN_STRING: tmp.kind = TOKEN_STRING; tmp.pStr = tokens[i].pStr; break;
+                        default: tmp.kind = TOKEN_NUMBER; if (!CalcConvertConst(tokens, pProcessedData, i, KEY_GLOBAL, const_map, tmp.number)) throw 2; break;
+                        }
+                        const_map.insert({ str, tmp });
                     }
-                    else if (VerifyCalcSyntax(tokens, pProcessedData, --it, proc_kind, const_map, false)) {
-                        possible_tokens[0] = TOKEN_IDENTIFIER;
-                        possible_tokens[1] = TOKEN_COMMAND;
-                        possible_tokens[2] = TOKEN_KEYWORD;
-                        num_possible = 3;
-                        guide_token = dummy_token;
+                    else throw 0;
+                    break;
+                case KEY_INCLUDE:
+                    if (i + 1 < tokens.size() && tokens[i + 1].kind == TOKEN_STRING) {
+                        i++;
+                        if (!IncludeSourceFile(tokens[i].pStr.c_str(), tokens, i + 2)) throw SourceInfo{ t.source, t.pStr.c_str(),  t.line };
+                        size = tokens.size();
                     }
-                    else throw t;
-                }break;
-            }
+                    else throw 0;
+                }
 
+            }
+            else throw t;
         }
         catch (const Token& t) {
-            printf("Invalid token in line %d @ %s\n", t.line, t.source);
+            printf("Unexpected token in line %d @ %s\n", t.line, t.source);
             raise_error = true;
         }
         catch (const SourceInfo& src) {
-            printf("%s - %d: Couldn't include source %s\n", src.pWhereSource, src.line, src.pWhatSource);
+            printf("%s - %d: Failed including source file %s\n", src.pWhereSource, src.line, src.pWhatSource);
             raise_error = true;
+        }
+        catch (const int code) {
+            const char* msg = "";
+            switch (code) {
+            case 0: msg = "Unexpected End of File"; break;
+            case 1: msg = "Failed processing procedure block"; break;
+            case 2: msg = "Failed processing const"; break;
+            }
+            printf("Error while parsing: %s\n", msg);
         }
         catch (...) {
             raise_error = true;
         }
     }
-    if (on_sub)
-        raise_error = true;
+
     return !raise_error;
+}
+
+bool ProcessCommonCmdData(
+    std::vector<Token>& tokens, 
+    std::vector<Token>* pProcessedData, 
+    constant_map& const_map,
+    SCL_INSTRUCTION command, 
+    SCL_INSTRUCTION& last_cmd, 
+    KEYWORD_KIND proc_type,
+    size_t& idx
+)
+{
+    bool success = true;
+    size_t size = tokens.size();
+    try {
+        //Used to look at reference for arguments
+        SCLInstructionDefine def = g_InstructionSize[command];
+
+        //Instruction and how many parameters it has
+        Token cmd;
+        cmd.kind = TOKEN_COMMAND;
+        cmd.number = command;
+        last_cmd = command;
+
+        int num_args = def.cnt - 1;
+        Token cnt;
+        cnt.kind = TOKEN_INCOUNT;
+        cnt.number = num_args;
+
+        pProcessedData->emplace_back(cmd);
+        pProcessedData->emplace_back(cnt);
+        idx++;
+        if (idx + (num_args) * 2 - 1 < size) {
+            for (int x = num_args, y = 0; x > 0;) {
+                Token rg;
+                rg.advance = 0;
+                const Token& rf = tokens[idx];
+                if (command == SCR_PUSHR || command == SCR_PARENT || command == SCR_POPR || command == SCR_LOAD) {
+                    int reg = def.paramdatatype[0];
+                    def.paramdatatype[0] = COMMAND;
+                    def.paramdatatype[1] = U8;
+                }
+
+                switch (def.paramdatatype[1 + y]) {
+                case U32: case I32:
+                    rg.advance += 2;
+                case U16: case I16:
+                    rg.advance++;
+                case U8: case I8:
+                    rg.advance++;
+                    {
+                        int result = 0;
+                        rg.kind = TOKEN_NUMBER;
+                        rg.line = rf.line;
+                        rg.source = rf.source;
+                        if (!CalcConvertConst(tokens, pProcessedData, idx, proc_type, const_map, rg.number)) throw 3;
+                    }    break;
+                case ADDRESS:
+                    rg.kind = TOKEN_IDENTIFIER;
+                    rg.advance = 4;
+                    rg.pStr = rf.pStr;
+                    idx++;
+                    break;
+                case STRING :
+                    rg.advance = rf.pStr.size();
+                    rg.kind = TOKEN_STRING;
+                    rg.pStr = rf.pStr;
+                    idx++;
+                    break;
+                default:
+                    throw 2;
+                }
+                pProcessedData->emplace_back(rg);
+                x--;
+                if (x > 0 && tokens[idx].kind == TOKEN_COMMA) {
+                    idx++;
+                    y++;
+                }
+            }
+        }
+        else throw 0;
+    }
+    catch (...) {
+        success = false;
+    }
+
+    return success;
+}
+
+bool ProcessConditionOrLoopBlock(
+    std::vector<Token>& tokens, 
+    std::vector<Token>* pProcessedData, 
+    constant_map& const_map, 
+    KEYWORD_KIND proc_kind,
+    KEYWORD_KIND type, 
+    size_t& idx
+) {
+    bool success = true;
+    size_t size = tokens.size();
+    try {
+        switch (type) {
+        case KEY_IF:
+            if (idx + 3 < size) {
+                idx++;
+                if (tokens[idx].kind == TOKEN_BEGINPARENTHESIS) {
+                    if (CalcConvert(tokens, pProcessedData, idx, KEY_ENEMY, const_map, false)) {
+                        if (tokens[idx].kind == TOKEN_BEGINBLOCK) {
+                            idx++;
+                            std::string lab_if = "@if_" + std::to_string(g_IfCnt);
+                            Token if_cmd;
+                            if_cmd.kind = TOKEN_COMMAND;
+                            if_cmd.number = SCR_FJMP;
+                            pProcessedData->emplace_back(if_cmd);
+                            Token if_cnt;
+                            if_cnt.kind = TOKEN_INCOUNT;
+                            if_cnt.number = 1;
+                            pProcessedData->emplace_back(if_cnt);
+                            Token if_label;
+                            if_label.kind = TOKEN_IDENTIFIER;
+                            if_label.advance = 4;
+                            if_label.pStr = lab_if;
+                            pProcessedData->emplace_back(if_label);
+                            if (!ProcessEnemyBlock(tokens, pProcessedData, const_map, idx, 2)) throw 0;
+
+                            Token tmp{ TOKEN_LABEL, 0, lab_if };
+                            pProcessedData->emplace_back(tmp);
+                            g_IfCnt++;
+                        }
+                    }
+                    else throw 0;
+                }
+
+
+            }
+            else throw 0;
+
+        case KEY_WHILE:
+            if (idx + 3 < size) {
+                idx++;
+                if (tokens[idx].kind == TOKEN_BEGINPARENTHESIS) {
+                    std::string w_cond = "@whilec_" + std::to_string(g_WhileCnt);
+                    std::string w_end = "@whilee_" + std::to_string(g_WhileCnt);
+                    Token tmp1{ TOKEN_LABEL, 0, w_cond };
+                    pProcessedData->emplace_back(tmp1);
+
+                    Token w_cmd1;
+                    w_cmd1.kind = TOKEN_COMMAND;
+                    w_cmd1.number = SCR_FJMP;
+                    pProcessedData->emplace_back(w_cmd1);
+                    Token w_cnt1;
+                    w_cnt1.kind = TOKEN_INCOUNT;
+                    w_cnt1.number = 1;
+                    pProcessedData->emplace_back(w_cnt1);
+                    Token w_label1;
+                    w_label1.kind = TOKEN_IDENTIFIER;
+                    w_label1.advance = 4;
+                    w_label1.pStr = w_end;
+                    pProcessedData->emplace_back(w_label1);
+                    if (CalcConvert(tokens, pProcessedData, idx, KEY_ENEMY, const_map, false)) {
+                        if (tokens[idx].kind == TOKEN_BEGINBLOCK) {
+                            idx++;
+                            if (!ProcessEnemyBlock(tokens, pProcessedData, const_map, idx, 2)) throw 0;
+
+                            Token w_cmd2;
+                            w_cmd2.kind = TOKEN_COMMAND;
+                            w_cmd2.number = SCR_JMP;
+                            pProcessedData->emplace_back(w_cmd2);
+                            Token w_cnt2;
+                            w_cnt2.kind = TOKEN_INCOUNT;
+                            w_cnt2.number = 1;
+                            pProcessedData->emplace_back(w_cnt2);
+                            Token w_label2;
+                            w_label2.kind = TOKEN_IDENTIFIER;
+                            w_label2.advance = 4;
+                            w_label2.pStr = w_cond;
+                            pProcessedData->emplace_back(w_label2);
+
+                            Token tmp2{ TOKEN_LABEL, 0, w_end };
+                            pProcessedData->emplace_back(tmp2);
+                            g_WhileCnt++;
+                        }
+                    }
+                    else throw 0;
+                }
+            }
+            else throw 0;
+            break;
+
+
+        case KEY_LOOP:
+            if (idx + 3 < size) {
+                idx++;
+                if (tokens[idx].kind == TOKEN_BEGINPARENTHESIS) {
+                    if (CalcConvert(tokens, pProcessedData, idx, KEY_ENEMY, const_map, false)) {
+                        if (tokens[idx].kind == TOKEN_BEGINBLOCK) {
+                            idx++;
+                            std::string w_cond = "@loopb_" + std::to_string(g_LoopCnt);
+                            std::string w_end = "@loope_" + std::to_string(g_LoopCnt);
+
+                            Token lpop_cmd;
+                            lpop_cmd.kind = TOKEN_COMMAND;
+                            lpop_cmd.number = SCR_LPOP;
+                            pProcessedData->emplace_back(lpop_cmd);
+                            Token lpop_cnt;
+                            lpop_cnt.kind = TOKEN_INCOUNT;
+                            lpop_cnt.number = 0;
+                            pProcessedData->emplace_back(lpop_cnt);
+
+                            Token tmp1{ TOKEN_LABEL, 0, w_cond };
+                            pProcessedData->emplace_back(tmp1);
+
+                            Token w_cmd1;
+                            w_cmd1.kind = TOKEN_COMMAND;
+                            w_cmd1.number = SCR_LJMP;
+                            pProcessedData->emplace_back(w_cmd1);
+                            Token w_cnt1;
+                            w_cnt1.kind = TOKEN_INCOUNT;
+                            w_cnt1.number = 1;
+                            pProcessedData->emplace_back(w_cnt1);
+                            Token w_label1;
+                            w_label1.kind = TOKEN_IDENTIFIER;
+                            w_label1.advance = 4;
+                            w_label1.pStr = w_end;
+                            pProcessedData->emplace_back(w_label1);
+                            if (!ProcessEnemyBlock(tokens, pProcessedData, const_map, idx, 1)) throw 0;
+
+                            Token w_cmd2;
+                            w_cmd2.kind = TOKEN_COMMAND;
+                            w_cmd2.number = SCR_JMP;
+                            pProcessedData->emplace_back(w_cmd2);
+                            Token w_cnt2;
+                            w_cnt2.kind = TOKEN_INCOUNT;
+                            w_cnt2.number = 1;
+                            pProcessedData->emplace_back(w_cnt2);
+                            Token w_label2;
+                            w_label2.kind = TOKEN_IDENTIFIER;
+                            w_label2.advance = 4;
+                            w_label2.pStr = w_cond;
+                            pProcessedData->emplace_back(w_label2);
+
+                            Token tmp2{ TOKEN_LABEL, 0, w_end };
+                            pProcessedData->emplace_back(tmp2);
+                            g_LoopCnt++;
+                        }
+                    }
+                    else throw 0;
+                }
+            }
+            else throw 0;
+            break;
+        }
+    }
+    catch (...) {
+        success = false;
+    }
+    return success;
+}
+
+bool ProcessTexInitBlock(
+    std::vector<Token>& tokens, 
+    std::vector<Token>* pProcessedData, 
+    constant_map& const_map, 
+    size_t& idx
+)
+{
+    bool success = true;
+    SCL_INSTRUCTION last_cmd = SCR_NOP;
+    const size_t size = tokens.size();
+
+    try {
+        bool on_exit = false;
+        for (; idx < size; ) {
+            const Token& t = tokens[idx];
+            switch (t.kind) {
+                //Just comands
+            case TOKEN_COMMAND: {
+                bool found_command = false;
+                for (auto c : g_TexInitCheck) if (c == t.number) found_command = true;
+                if (found_command) {
+                    if (t.number == SCR_ANIME) {
+                        
+                    }
+                    else if (!ProcessCommonCmdData(tokens, pProcessedData, const_map, (SCL_INSTRUCTION)t.number, last_cmd, KEY_TEXINIT, idx)) throw 0;
+                }
+                else throw t;
+            }    break;
+                              //Const for local constants
+            case TOKEN_KEYWORD:
+                switch (t.number) {
+                case KEY_CONST:
+                    if (idx + 2 < tokens.size() && tokens[idx + 1].kind == TOKEN_IDENTIFIER) {
+                        idx++;
+                        Token tmp = { TOKEN_PROC, tokens[idx + 1].line };
+                        const std::string& str = tokens[idx].pStr;
+                        idx++;
+                        switch (tokens[idx].kind) {
+                        case TOKEN_STRING: tmp.kind = TOKEN_STRING; tmp.pStr = tokens[idx].pStr; break;
+                        default: tmp.kind = TOKEN_NUMBER; if (!CalcConvertConst(tokens, pProcessedData, idx, KEY_GLOBAL, const_map, tmp.number)) throw 2; break;
+                        }
+                        const_map.insert({ str, tmp });
+                    }
+                    else throw 0;
+                    break;
+                default:
+                    throw 0;
+                }
+                break;
+            case TOKEN_ENDBLOCK:
+            {
+                idx++;
+                if (last_cmd != SCR_EXIT) {
+                    Token cmd;
+                    cmd.kind = TOKEN_COMMAND;
+                    cmd.number = SCR_EXIT;
+
+                    Token cnt;
+                    cnt.kind = TOKEN_INCOUNT;
+                    cnt.number = 0;
+                    pProcessedData->emplace_back(cmd);
+                    pProcessedData->emplace_back(cnt);
+                }
+                Token end;
+                end.kind = TOKEN_ENDPROC;
+                pProcessedData->emplace_back(end);
+
+                on_exit = true;
+            }
+            break;
+            default:
+                throw 0;
+                break;
+            }
+            if (on_exit) break;
+        }
+    }
+    catch (...) {
+        success = false;
+    }
+    return success;
+}
+
+bool ProcessEnemyBlock(
+    std::vector<Token>& tokens, 
+    std::vector<Token>* pProcessedData, 
+    constant_map& const_map,
+    size_t& idx,
+    int exit_type
+)
+{
+    bool success = true;
+    SCL_INSTRUCTION last_cmd = SCR_NOP;
+    const size_t size = tokens.size();
+
+    try {
+        bool on_exit = false;
+        for (; idx < size; ) {
+            const Token& t = tokens[idx];
+            switch (t.kind) {
+            //Just comands
+            case TOKEN_COMMAND: {
+                bool found_command = false;
+                for (auto c : g_EnemyCheck) if (c == t.number) found_command = true;
+                for (auto c : g_ControlFlow) if (c == t.number) found_command = true;
+                if (found_command) {
+                    if(!ProcessCommonCmdData(tokens, pProcessedData, const_map, (SCL_INSTRUCTION)t.number, last_cmd, KEY_ENEMY, idx)) throw 0;
+                }
+                else throw t;
+            }    break;
+            //For normal math expressions
+            case TOKEN_IDENTIFIER: {
+                if (idx + 1 < size && tokens[idx + 1].kind == TOKEN_DOTS) {
+                    Token tmp{ TOKEN_LABEL, t.line, t.pStr };
+                    pProcessedData->emplace_back(tmp);
+                    idx += 2;
+                }
+                else if (!CalcConvert(tokens, pProcessedData, idx, KEY_ENEMY, const_map, true)) throw 0;
+            } break;
+            //Const for local constants
+            case TOKEN_KEYWORD:
+                if (t.number == KEY_IF || t.number == KEY_WHILE || t.number == KEY_LOOP) {
+                    if(!ProcessConditionOrLoopBlock(tokens, pProcessedData, const_map, KEY_ENEMY, (KEYWORD_KIND)t.number, idx)) throw 0;
+                }
+                else {
+                    switch (t.number) {
+                    case KEY_CONST:
+                        if (idx + 2 < tokens.size() && tokens[idx + 1].kind == TOKEN_IDENTIFIER) {
+                            idx++;
+                            Token tmp = { TOKEN_PROC, tokens[idx + 1].line };
+                            const std::string& str = tokens[idx].pStr;
+                            idx++;
+                            switch (tokens[idx].kind) {
+                            case TOKEN_STRING: tmp.kind = TOKEN_STRING; tmp.pStr = tokens[idx].pStr; break;
+                            default: tmp.kind = TOKEN_NUMBER; if (!CalcConvertConst(tokens, pProcessedData, idx, KEY_GLOBAL, const_map, tmp.number)) throw 2; break;
+                            }
+                            const_map.insert({ str, tmp });
+                        }
+                        else throw 0;
+                        break;
+                    default:
+                        throw 0;
+                    }
+                }
+                break;
+            case TOKEN_ENDBLOCK:
+                idx++;
+                if (exit_type != 1) {
+                    if (last_cmd != SCR_EXIT) {
+                        Token cmd;
+                        cmd.kind = TOKEN_COMMAND;
+                        cmd.number = (exit_type == 0) ? SCR_EXIT : SCR_RET;
+
+                        Token cnt;
+                        cnt.kind = TOKEN_INCOUNT;
+                        cnt.number = !(exit_type == 0);
+                        pProcessedData->emplace_back(cmd);
+                        pProcessedData->emplace_back(cnt);
+                        if (exit_type == 2) {
+                            Token rt;
+                            rt.kind = TOKEN_NUMBER;
+                            rt.number = 0;
+                            rt.advance = 1;
+                            pProcessedData->emplace_back(rt);
+                        }
+                    }
+                    Token end;
+                    end.kind = TOKEN_ENDPROC;
+                    pProcessedData->emplace_back(end);
+                    
+                }
+                on_exit = true;
+                break;
+            default:
+                break;
+            }
+            if (on_exit) break;
+        }
+    }
+    catch(...){
+        success = false;
+    }
+    return success;
+}
+
+bool ProcessTSetBlock(
+    std::vector<Token>& tokens,
+    std::vector<Token>* pProcessedData, 
+    constant_map& const_map, 
+    size_t& idx,
+    int exit_type
+)
+{
+    bool success = true;
+    SCL_INSTRUCTION last_cmd = SCR_NOP;
+    const size_t size = tokens.size();
+
+    try {
+        bool on_exit = false;
+        for (; idx < size; ) {
+            const Token& t = tokens[idx];
+            switch (t.kind) {
+                //Just comands
+            case TOKEN_COMMAND: {
+                bool found_command = false;
+                for (auto c : g_TSetCheck) if (c == t.number) found_command = true;
+                for (auto c : g_ControlFlow) if (c == t.number) found_command = true;
+                if (found_command) {
+                    if (!ProcessCommonCmdData(tokens, pProcessedData, const_map, (SCL_INSTRUCTION)t.number, last_cmd, KEY_TSET, idx)) throw 0;
+                }
+                else throw t;
+            }    break;
+                              //For normal math expressions
+            case TOKEN_IDENTIFIER: {
+                if (idx + 1 < size && tokens[idx + 1].kind == TOKEN_DOTS) {
+                    Token tmp{ TOKEN_LABEL, t.line, t.pStr };
+                    pProcessedData->emplace_back(tmp);
+                    idx += 2;
+                }
+                else if (!CalcConvert(tokens, pProcessedData, idx, KEY_TSET, const_map, true)) throw 0;
+            } break;
+                                 //Const for local constants
+            case TOKEN_KEYWORD:
+                if (t.number == KEY_IF || t.number == KEY_WHILE || t.number == KEY_LOOP) {
+                    if (!ProcessConditionOrLoopBlock(tokens, pProcessedData, const_map, KEY_TSET, (KEYWORD_KIND)t.number, idx)) throw 0;
+                }
+                else {
+                    switch (t.number) {
+                    case KEY_CONST:
+                        if (idx + 2 < tokens.size() && tokens[idx + 1].kind == TOKEN_IDENTIFIER) {
+                            idx++;
+                            Token tmp = { TOKEN_PROC, tokens[idx + 1].line };
+                            const std::string& str = tokens[idx].pStr;
+                            idx++;
+                            switch (tokens[idx].kind) {
+                            case TOKEN_STRING: tmp.kind = TOKEN_STRING; tmp.pStr = tokens[idx].pStr; break;
+                            default: tmp.kind = TOKEN_NUMBER; if (!CalcConvertConst(tokens, pProcessedData, idx, KEY_GLOBAL, const_map, tmp.number)) throw 2; break;
+                            }
+                            const_map.insert({ str, tmp });
+                        }
+                        else throw 0;
+                        break;
+                    default:
+                        throw 0;
+                    }
+                }
+                break;
+            case TOKEN_ENDBLOCK:
+                idx++;
+                if(exit_type != 1){
+                    if (last_cmd != SCR_EXIT) {
+                        Token cmd;
+                        cmd.kind = TOKEN_COMMAND;
+                        cmd.number = SCR_EXIT;
+
+                        Token cnt;
+                        cnt.kind = TOKEN_INCOUNT;
+                        cnt.number = 0;
+                        pProcessedData->emplace_back(cmd);
+                        pProcessedData->emplace_back(cnt);
+                    }
+                    Token end;
+                    end.kind = TOKEN_ENDPROC;
+                    pProcessedData->emplace_back(end);
+
+                }
+                on_exit = true;
+                break;
+            default:
+                break;
+            }
+            if (on_exit) break;
+        }
+    }
+    catch (...) {
+        success = false;
+    }
+    return success;
+}
+
+bool ProcessExAnmBlock(
+    std::vector<Token>& tokens, 
+    std::vector<Token>* pProcessedData,
+    constant_map& const_map, 
+    size_t& idx,
+    int exit_type
+)
+{
+    bool success = true;
+    SCL_INSTRUCTION last_cmd = SCR_NOP;
+    const size_t size = tokens.size();
+
+    try {
+        bool on_exit = false;
+        for (; idx < size; ) {
+            const Token& t = tokens[idx];
+            switch (t.kind) {
+                //Just comands
+            case TOKEN_COMMAND: {
+                bool found_command = false;
+                for (auto c : g_ExAnmCheck) if (c == t.number) found_command = true;
+                for (auto c : g_ControlFlow) if (c == t.number) found_command = true;
+                if (found_command) {
+                    if (!ProcessCommonCmdData(tokens, pProcessedData, const_map, (SCL_INSTRUCTION)t.number, last_cmd, KEY_EXANM, idx)) throw 0;
+                }
+                else throw t;
+            }    break;
+                              //For normal math expressions
+            case TOKEN_IDENTIFIER: {
+                if (idx + 1 < size && tokens[idx + 1].kind == TOKEN_DOTS) {
+                    Token tmp{ TOKEN_LABEL, t.line, t.pStr };
+                    pProcessedData->emplace_back(tmp);
+                    idx += 2;
+                }
+                else if (!CalcConvert(tokens, pProcessedData, idx, KEY_EXANM, const_map, true)) throw 0;
+            } break;
+                                 //Const for local constants
+            case TOKEN_KEYWORD:
+                if (t.number == KEY_IF || t.number == KEY_WHILE || t.number == KEY_LOOP) {
+                    if (!ProcessConditionOrLoopBlock(tokens, pProcessedData, const_map, KEY_EXANM, (KEYWORD_KIND)t.number, idx)) throw 0;
+                }
+                else {
+                    switch (t.number) {
+                    case KEY_CONST:
+                        if (idx + 2 < tokens.size() && tokens[idx + 1].kind == TOKEN_IDENTIFIER) {
+                            idx++;
+                            Token tmp = { TOKEN_PROC, tokens[idx + 1].line };
+                            const std::string& str = tokens[idx].pStr;
+                            idx++;
+                            switch (tokens[idx].kind) {
+                            case TOKEN_STRING: tmp.kind = TOKEN_STRING; tmp.pStr = tokens[idx].pStr; break;
+                            default: tmp.kind = TOKEN_NUMBER; if (!CalcConvertConst(tokens, pProcessedData, idx, KEY_GLOBAL, const_map, tmp.number)) throw 2; break;
+                            }
+                            const_map.insert({ str, tmp });
+                        }
+                        else throw 0;
+                        break;
+                    default:
+                        throw 0;
+                    }
+                }
+                break;
+            case TOKEN_ENDBLOCK:
+                idx++; 
+                if (exit_type != 1) {
+                    if (last_cmd != SCR_EXIT) {
+                        Token cmd;
+                        cmd.kind = TOKEN_COMMAND;
+                        cmd.number = SCR_EXIT;
+
+                        Token cnt;
+                        cnt.kind = TOKEN_INCOUNT;
+                        cnt.number = 0;
+                        pProcessedData->emplace_back(cmd);
+                        pProcessedData->emplace_back(cnt);
+
+                    }
+
+                    Token end;
+                    end.kind = TOKEN_ENDPROC;
+                    pProcessedData->emplace_back(end);
+                }
+                on_exit = true;
+                break;
+            default:
+                break;
+            }
+            if (on_exit) break;
+        }
+    }
+    catch (...) {
+        success = false;
+    }
+    return success;
+}
+
+bool ProcessSetBlock(
+    std::vector<Token>& tokens,
+    std::vector<Token>* pProcessedData,
+    constant_map& const_map,
+    size_t& idx
+)
+{
+    bool success = true;
+    SCL_INSTRUCTION last_cmd = SCR_NOP;
+    const size_t size = tokens.size();
+
+    try {
+        bool on_exit = false;
+        for (; idx < size; ) {
+            const Token& t = tokens[idx];
+            switch (t.kind) {
+                //Just comands
+            case TOKEN_COMMAND: {
+                bool found_command = false;
+                for (auto c : g_SetCheck) if (c == t.number) found_command = true;
+                if (found_command) {
+                    if (!ProcessCommonCmdData(tokens, pProcessedData, const_map, (SCL_INSTRUCTION)t.number, last_cmd, KEY_SET, idx)) throw 0;
+                }
+                else throw t;
+            }    break;
+                              //Const for local constants
+            case TOKEN_KEYWORD:
+                switch (t.number) {
+                case KEY_CONST:
+                    if (idx + 2 < tokens.size() && tokens[idx + 1].kind == TOKEN_IDENTIFIER) {
+                        idx++;
+                        Token tmp = { TOKEN_PROC, tokens[idx + 1].line };
+                        const std::string& str = tokens[idx].pStr;
+                        idx++;
+                        switch (tokens[idx].kind) {
+                        case TOKEN_STRING: tmp.kind = TOKEN_STRING; tmp.pStr = tokens[idx].pStr; break;
+                        default: tmp.kind = TOKEN_NUMBER; if (!CalcConvertConst(tokens, pProcessedData, idx, KEY_GLOBAL, const_map, tmp.number)) throw 2; break;
+                        }
+                        const_map.insert({ str, tmp });
+                    }
+                    else throw 0;
+                    break;
+                default:
+                    throw 0;
+                }
+                break;
+            case TOKEN_ENDBLOCK:
+            {
+                idx++;
+                if (last_cmd != SCR_EXIT) {
+                    Token cmd;
+                    cmd.kind = TOKEN_COMMAND;
+                    cmd.number = SCR_EXIT;
+
+                    Token cnt;
+                    cnt.kind = TOKEN_INCOUNT;
+                    cnt.number = 0;
+                    pProcessedData->emplace_back(cmd);
+                    pProcessedData->emplace_back(cnt);
+                }
+                Token end;
+                end.kind = TOKEN_ENDPROC;
+                pProcessedData->emplace_back(end);
+
+                on_exit = true;
+            }
+            break;
+            default:
+                throw 0;
+                break;
+            }
+            if (on_exit) break;
+        }
+    }
+    catch (...) {
+        success = false;
+    }
+    return success;
+}
+
+bool ProcessExtraTexBlock(
+    std::vector<Token>& tokens,
+    std::vector<Token>* pProcessedData, 
+    constant_map& const_map, 
+    size_t& idx
+)
+{
+    bool success = true;
+    SCL_INSTRUCTION last_cmd = SCR_NOP;
+    const size_t size = tokens.size();
+
+    try {
+        bool on_exit = false;
+        for (; idx < size; ) {
+            const Token& t = tokens[idx];
+            switch (t.kind) {
+                //Just comands
+            case TOKEN_COMMAND: {
+                bool found_command = false;
+                for (auto c : g_ExtraTexCheck) if (c == t.number) found_command = true;
+                if (found_command) {
+                    if (!ProcessCommonCmdData(tokens, pProcessedData, const_map, (SCL_INSTRUCTION)t.number, last_cmd, KEY_EXTRATEX, idx)) throw 0;
+                }
+                else throw t;
+            }    break;
+                                 //Const for local constants
+            case TOKEN_KEYWORD:
+                    switch (t.number) {
+                    case KEY_CONST:
+                        if (idx + 2 < tokens.size() && tokens[idx + 1].kind == TOKEN_IDENTIFIER) {
+                            idx++;
+                            Token tmp = { TOKEN_PROC, tokens[idx + 1].line };
+                            const std::string& str = tokens[idx].pStr;
+                            idx++;
+                            switch (tokens[idx].kind) {
+                            case TOKEN_STRING: tmp.kind = TOKEN_STRING; tmp.pStr = tokens[idx].pStr; break;
+                            default: tmp.kind = TOKEN_NUMBER; if (!CalcConvertConst(tokens, pProcessedData, idx, KEY_GLOBAL, const_map, tmp.number)) throw 2; break;
+                            }
+                            const_map.insert({ str, tmp });
+                        }
+                        else throw 0;
+                        break;
+                    default:
+                        throw 0;
+                    }
+                break;
+            case TOKEN_ENDBLOCK:
+            {
+                idx++;
+                if (last_cmd != SCR_EXIT) {
+                    Token cmd;
+                    cmd.kind = TOKEN_COMMAND;
+                    cmd.number = SCR_EXIT;
+
+                    Token cnt;
+                    cnt.kind = TOKEN_INCOUNT;
+                    cnt.number = 0;
+                    pProcessedData->emplace_back(cmd);
+                    pProcessedData->emplace_back(cnt);
+                }
+                Token end;
+                end.kind = TOKEN_ENDPROC;
+                pProcessedData->emplace_back(end);
+
+                on_exit = true;
+            }
+                break;
+            default:
+                throw 0;
+                break;
+            }
+            if (on_exit) break;
+        }
+    }
+    catch (...) {
+        success = false;
+    }
+    return success;
 }
 
 bool CalculateAddresses(
@@ -838,7 +1303,7 @@ bool CalculateAddresses(
                 dupe = tokens[i].pStr;
                 break;
             }
-            if (tokens[i].number == KEY_TEXINITPROC) {
+            if (tokens[i].number == KEY_TEXINIT) {
                 if (found_texproc) {
                     raise_error = true;
                     err_code = 0;
@@ -991,6 +1456,7 @@ bool ProcessHeader(
     memset(pHeader, 0xffffffff, sizeof(SCLHeader));
     std::ifstream header(json);
     bool raise_error = false;
+    if (!header.is_open()) return false;
     nlohmann::json jheader = nlohmann::json::parse(header);
     if (jheader.find("TexInit") != jheader.end()) {
         try {
@@ -999,13 +1465,19 @@ bool ProcessHeader(
                 address ads = pProcData.at(k).ads;
                 pHeader->TexInitializer = ads;
             }
-            else raise_error = true;
+            else {
+                printf("TexInit procedure \"%s\" not found\n", k.c_str());
+                raise_error = true;
+            }
         }
         catch (...) {
             printf("Argument for TexInit must be an String.\n");
         }
     }
-    else raise_error = true;
+    else {
+        printf("TexInit key not found\n");
+        raise_error = true;
+    }
     if (raise_error) return false;
 
     const std::string SCLLevels[] = {"SCL1", "SCL2", "SCL3", "SCL4"};
