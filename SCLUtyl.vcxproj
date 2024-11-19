@@ -139,11 +139,13 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="Calc2Token.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="SCLCompile.cpp" />
     <ClCompile Include="SCLDump.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Calc2Token.h" />
     <ClInclude Include="SCLCompile.h" />
     <ClInclude Include="SCLData.h" />
     <ClInclude Include="SCLDump.h" />

@@ -313,8 +313,6 @@ bool TokenizeInput(
                             if (g_ArithFunc.find(tok.pStr) != g_ArithFunc.end()) {
                                 tok.kind = TOKEN_ARITHF;
                                 tok.number = g_ArithFunc[tok.pStr];
-                                tok.line = line;
-                                tok.source = pSourceFile;
                             }
                         }
                         else throw 0;
@@ -401,89 +399,90 @@ bool VerifySyntaxAndParse(
     Token* pAnimP = nullptr;
     int ident_size = 0;
     size_t size = tokens.size();
-
-    for (size_t i = 0; i < size; ) {
-        auto& t = tokens[i];
-        try {
-            if (t.kind == TOKEN_KEYWORD) {
-                switch (t.number) {
-                case KEY_TEXINIT:
-                case KEY_PROC:
-                case KEY_ENEMY:
-                case KEY_TSET:
-                case KEY_EXANM:
-                case KEY_EXTRATEX:
-                case KEY_SET:
-                    if (i + 2 < tokens.size() && tokens[i + 1].kind == TOKEN_IDENTIFIER) {
-                        i++;
-                        Token tmp = { TOKEN_PROC, t.number, tokens[i].pStr };
-                        pProcessedData->emplace_back(tmp);
-                        if (tokens[i + 1].kind == TOKEN_BEGINBLOCK) {
-                            i += 2;
-                            bool parse_success = false;
-                            switch (t.number) {
-                            case KEY_TEXINIT: parse_success = ProcessTexInitBlock(tokens, pProcessedData, const_map, i); break;
-                            case KEY_PROC: parse_success = ProcessEnemyBlock(tokens, pProcessedData, const_map, i, 2); break;
-                            case KEY_ENEMY: parse_success = ProcessEnemyBlock(tokens, pProcessedData, const_map, i, 0); break;
-                            case KEY_TSET: parse_success = ProcessTSetBlock(tokens, pProcessedData, const_map, i, 0); break;
-                            case KEY_EXANM: parse_success = ProcessExAnmBlock(tokens, pProcessedData, const_map, i, 0); break;
-                            case KEY_EXTRATEX: parse_success = ProcessExtraTexBlock(tokens, pProcessedData, const_map, i); break;
-                            case KEY_SET: parse_success = ProcessSetBlock(tokens, pProcessedData, const_map, i); break;
+    size_t i = 0;
+    try {
+        for (i = 0; i < size; ) {
+            auto& t = tokens[i];
+                if (t.kind == TOKEN_KEYWORD) {
+                    switch (t.number) {
+                    case KEY_TEXINIT:
+                    case KEY_PROC:
+                    case KEY_ENEMY:
+                    case KEY_TSET:
+                    case KEY_EXANM:
+                    case KEY_EXTRATEX:
+                    case KEY_SET:
+                        if (i + 2 < tokens.size() && tokens[i + 1].kind == TOKEN_IDENTIFIER) {
+                            i++;
+                            Token tmp = { TOKEN_PROC, t.number, tokens[i].pStr };
+                            pProcessedData->emplace_back(tmp);
+                            if (tokens[i + 1].kind == TOKEN_BEGINBLOCK) {
+                                i += 2;
+                                bool parse_success = false;
+                                switch (t.number) {
+                                case KEY_TEXINIT: parse_success = ProcessTexInitBlock(tokens, pProcessedData, const_map, i); break;
+                                case KEY_PROC: parse_success = ProcessEnemyBlock(tokens, pProcessedData, const_map, i, 2); break;
+                                case KEY_ENEMY: parse_success = ProcessEnemyBlock(tokens, pProcessedData, const_map, i, 0); break;
+                                case KEY_TSET: parse_success = ProcessTSetBlock(tokens, pProcessedData, const_map, i, 0); break;
+                                case KEY_EXANM: parse_success = ProcessExAnmBlock(tokens, pProcessedData, const_map, i, 0); break;
+                                case KEY_EXTRATEX: parse_success = ProcessExtraTexBlock(tokens, pProcessedData, const_map, i); break;
+                                case KEY_SET: parse_success = ProcessSetBlock(tokens, pProcessedData, const_map, i); break;
+                                }
+                                if (!parse_success) throw 1;
                             }
-                            if (!parse_success) throw 1;
+                            else throw tokens[i + 1];
                         }
-                        else throw tokens[i + 1];
-                    }
-                    else throw 0;
-                    break;
-                case KEY_CONST:
-                    if (i + 2 < tokens.size() && tokens[i + 1].kind == TOKEN_IDENTIFIER) {
-                        i++;
-                        Token tmp = { TOKEN_PROC, tokens[i + 1].line };
-                        const std::string& str = tokens[i].pStr;
-                        i++;
-                        switch (tokens[i].kind) {
-                        case TOKEN_STRING: tmp.kind = TOKEN_STRING; tmp.pStr = tokens[i].pStr; break;
-                        default: tmp.kind = TOKEN_NUMBER; if (!CalcConvertConst(tokens, pProcessedData, i, KEY_GLOBAL, const_map, tmp.number)) throw 2; break;
+                        else throw 0;
+                        break;
+                    case KEY_CONST:
+                        if (i + 2 < tokens.size() && tokens[i + 1].kind == TOKEN_IDENTIFIER) {
+                            i++;
+                            Token tmp = { TOKEN_PROC, tokens[i + 1].line };
+                            const std::string& str = tokens[i].pStr;
+                            i++;
+                            switch (tokens[i].kind) {
+                            case TOKEN_STRING: tmp.kind = TOKEN_STRING; tmp.pStr = tokens[i].pStr; i++; break;
+                            default: tmp.kind = TOKEN_NUMBER; if (!CalcConvertConst(tokens, pProcessedData, i, KEY_GLOBAL, const_map, tmp.number)) throw t; break;
+                            }
+                            const_map.insert({ str, tmp });
                         }
-                        const_map.insert({ str, tmp });
+                        else throw 0;
+                        break;
+                    case KEY_INCLUDE:
+                        if (i + 1 < tokens.size() && tokens[i + 1].kind == TOKEN_STRING) {
+                            std::string src = tokens[i + 1].pStr;
+                            i += 2;
+                            if (!IncludeSourceFile(src.c_str(), tokens, i)) throw SourceInfo{ t.source, src.c_str(),  t.line };
+                            size = tokens.size();
+                        }
+                        else throw 0;
                     }
-                    else throw 0;
-                    break;
-                case KEY_INCLUDE:
-                    if (i + 1 < tokens.size() && tokens[i + 1].kind == TOKEN_STRING) {
-                        i++;
-                        if (!IncludeSourceFile(tokens[i].pStr.c_str(), tokens, i + 2)) throw SourceInfo{ t.source, t.pStr.c_str(),  t.line };
-                        size = tokens.size();
-                    }
-                    else throw 0;
-                }
 
-            }
-            else throw t;
-        }
-        catch (const Token& t) {
-            printf("Unexpected token in line %d @ %s\n", t.line, t.source);
-            raise_error = true;
-        }
-        catch (const SourceInfo& src) {
-            printf("%s - %d: Failed including source file %s\n", src.pWhereSource, src.line, src.pWhatSource);
-            raise_error = true;
-        }
-        catch (const int code) {
-            const char* msg = "";
-            switch (code) {
-            case 0: msg = "Unexpected End of File"; break;
-            case 1: msg = "Failed processing procedure block"; break;
-            case 2: msg = "Failed processing const"; break;
-            }
-            printf("Error while parsing: %s\n", msg);
-        }
-        catch (...) {
-            raise_error = true;
+                }
+                else throw t;
         }
     }
-
+    catch (const Token& t) {
+        printf("Unexpected token in line %d @ %s\n", t.line, t.source);
+        raise_error = true;
+    }
+    catch (const SourceInfo& src) {
+        printf("%s - %d: Failed including source file %s\n", src.pWhereSource, src.line, src.pWhatSource);
+        raise_error = true;
+    }
+    catch (const int code) {
+        const char* msg = "";
+        switch (code) {
+        case 0: msg = "Unexpected End of File"; break;
+        case 1: msg = "Failed processing procedure block"; break;
+        case 2: msg = "Failed processing const"; break;
+        }
+        raise_error = true;
+        printf("L: %d Error while parsing: %s\n", tokens[i].line, msg);
+    }
+    catch (...) {
+        raise_error = true;
+    }
     return !raise_error;
 }
 
@@ -527,6 +526,8 @@ bool ProcessCommonCmdData(
                     def.paramdatatype[0] = COMMAND;
                     def.paramdatatype[1] = U8;
                 }
+                rg.line = rf.line;
+                rg.source = rf.source;
 
                 switch (def.paramdatatype[1 + y]) {
                 case U32: case I32:
@@ -536,10 +537,7 @@ bool ProcessCommonCmdData(
                 case U8: case I8:
                     rg.advance++;
                     {
-                        int result = 0;
                         rg.kind = TOKEN_NUMBER;
-                        rg.line = rf.line;
-                        rg.source = rf.source;
                         if (!CalcConvertConst(tokens, pProcessedData, idx, proc_type, const_map, rg.number)) throw 3;
                     }    break;
                 case ADDRESS:
@@ -549,9 +547,20 @@ bool ProcessCommonCmdData(
                     idx++;
                     break;
                 case STRING :
-                    rg.advance = rf.pStr.size();
-                    rg.kind = TOKEN_STRING;
-                    rg.pStr = rf.pStr;
+                    if (rf.kind == TOKEN_STRING) {
+                        rg.kind = TOKEN_STRING;
+                        rg.pStr = rf.pStr;
+                        rg.advance = rf.pStr.size() + 1;
+                    }
+                    else if (rf.kind == TOKEN_IDENTIFIER) {
+                        rg.kind = TOKEN_STRING;
+                        if (const_map.find(rf.pStr) != const_map.end()) {
+                            rg.pStr = const_map[rf.pStr].pStr;
+                            rg.advance = rg.pStr.size() + 1;
+                        }
+                        else throw 4;
+                    }
+                    else throw 4;
                     idx++;
                     break;
                 default:
@@ -579,7 +588,8 @@ bool ProcessConditionOrLoopBlock(
     std::vector<Token>* pProcessedData, 
     constant_map& const_map, 
     KEYWORD_KIND proc_kind,
-    KEYWORD_KIND type, 
+    KEYWORD_KIND type,
+    bool (*BlockProcessFn)(std::vector<Token>&, std::vector<Token>*, constant_map&, size_t&, int),
     size_t& idx
 ) {
     bool success = true;
@@ -590,10 +600,11 @@ bool ProcessConditionOrLoopBlock(
             if (idx + 3 < size) {
                 idx++;
                 if (tokens[idx].kind == TOKEN_BEGINPARENTHESIS) {
-                    if (CalcConvert(tokens, pProcessedData, idx, KEY_ENEMY, const_map, false)) {
+                    if (CalcConvert(tokens, pProcessedData, idx, proc_kind, const_map, false)) {
                         if (tokens[idx].kind == TOKEN_BEGINBLOCK) {
                             idx++;
                             std::string lab_if = "@if_" + std::to_string(g_IfCnt);
+                            g_IfCnt++;
                             Token if_cmd;
                             if_cmd.kind = TOKEN_COMMAND;
                             if_cmd.number = SCR_FJMP;
@@ -607,11 +618,10 @@ bool ProcessConditionOrLoopBlock(
                             if_label.advance = 4;
                             if_label.pStr = lab_if;
                             pProcessedData->emplace_back(if_label);
-                            if (!ProcessEnemyBlock(tokens, pProcessedData, const_map, idx, 2)) throw 0;
+                            if (!BlockProcessFn(tokens, pProcessedData, const_map, idx, 1)) throw 0;
 
                             Token tmp{ TOKEN_LABEL, 0, lab_if };
                             pProcessedData->emplace_back(tmp);
-                            g_IfCnt++;
                         }
                     }
                     else throw 0;
@@ -627,26 +637,26 @@ bool ProcessConditionOrLoopBlock(
                 if (tokens[idx].kind == TOKEN_BEGINPARENTHESIS) {
                     std::string w_cond = "@whilec_" + std::to_string(g_WhileCnt);
                     std::string w_end = "@whilee_" + std::to_string(g_WhileCnt);
+                    g_WhileCnt++;
                     Token tmp1{ TOKEN_LABEL, 0, w_cond };
                     pProcessedData->emplace_back(tmp1);
-
-                    Token w_cmd1;
-                    w_cmd1.kind = TOKEN_COMMAND;
-                    w_cmd1.number = SCR_FJMP;
-                    pProcessedData->emplace_back(w_cmd1);
-                    Token w_cnt1;
-                    w_cnt1.kind = TOKEN_INCOUNT;
-                    w_cnt1.number = 1;
-                    pProcessedData->emplace_back(w_cnt1);
-                    Token w_label1;
-                    w_label1.kind = TOKEN_IDENTIFIER;
-                    w_label1.advance = 4;
-                    w_label1.pStr = w_end;
-                    pProcessedData->emplace_back(w_label1);
-                    if (CalcConvert(tokens, pProcessedData, idx, KEY_ENEMY, const_map, false)) {
+                    if (CalcConvert(tokens, pProcessedData, idx, proc_kind, const_map, false)) {
+                        Token w_cmd1;
+                        w_cmd1.kind = TOKEN_COMMAND;
+                        w_cmd1.number = SCR_FJMP;
+                        pProcessedData->emplace_back(w_cmd1);
+                        Token w_cnt1;
+                        w_cnt1.kind = TOKEN_INCOUNT;
+                        w_cnt1.number = 1;
+                        pProcessedData->emplace_back(w_cnt1);
+                        Token w_label1;
+                        w_label1.kind = TOKEN_IDENTIFIER;
+                        w_label1.advance = 4;
+                        w_label1.pStr = w_end;
+                        pProcessedData->emplace_back(w_label1);
                         if (tokens[idx].kind == TOKEN_BEGINBLOCK) {
                             idx++;
-                            if (!ProcessEnemyBlock(tokens, pProcessedData, const_map, idx, 2)) throw 0;
+                            if (!BlockProcessFn(tokens, pProcessedData, const_map, idx, 1)) throw 0;
 
                             Token w_cmd2;
                             w_cmd2.kind = TOKEN_COMMAND;
@@ -664,7 +674,6 @@ bool ProcessConditionOrLoopBlock(
 
                             Token tmp2{ TOKEN_LABEL, 0, w_end };
                             pProcessedData->emplace_back(tmp2);
-                            g_WhileCnt++;
                         }
                     }
                     else throw 0;
@@ -678,11 +687,12 @@ bool ProcessConditionOrLoopBlock(
             if (idx + 3 < size) {
                 idx++;
                 if (tokens[idx].kind == TOKEN_BEGINPARENTHESIS) {
-                    if (CalcConvert(tokens, pProcessedData, idx, KEY_ENEMY, const_map, false)) {
+                    if (CalcConvert(tokens, pProcessedData, idx, proc_kind, const_map, false)) {
                         if (tokens[idx].kind == TOKEN_BEGINBLOCK) {
                             idx++;
                             std::string w_cond = "@loopb_" + std::to_string(g_LoopCnt);
                             std::string w_end = "@loope_" + std::to_string(g_LoopCnt);
+                            g_LoopCnt++;
 
                             Token lpop_cmd;
                             lpop_cmd.kind = TOKEN_COMMAND;
@@ -709,7 +719,7 @@ bool ProcessConditionOrLoopBlock(
                             w_label1.advance = 4;
                             w_label1.pStr = w_end;
                             pProcessedData->emplace_back(w_label1);
-                            if (!ProcessEnemyBlock(tokens, pProcessedData, const_map, idx, 1)) throw 0;
+                            if (!BlockProcessFn(tokens, pProcessedData, const_map, idx, 1)) throw 0;
 
                             Token w_cmd2;
                             w_cmd2.kind = TOKEN_COMMAND;
@@ -727,7 +737,6 @@ bool ProcessConditionOrLoopBlock(
 
                             Token tmp2{ TOKEN_LABEL, 0, w_end };
                             pProcessedData->emplace_back(tmp2);
-                            g_LoopCnt++;
                         }
                     }
                     else throw 0;
@@ -765,7 +774,56 @@ bool ProcessTexInitBlock(
                 for (auto c : g_TexInitCheck) if (c == t.number) found_command = true;
                 if (found_command) {
                     if (t.number == SCR_ANIME) {
-                        
+                        idx++;
+                        if (idx < size) {
+
+                            //Instruction and how many parameters it has
+                            Token cmd;
+                            cmd.kind = TOKEN_COMMAND;
+                            cmd.number = SCR_ANIME;
+                            last_cmd = SCR_ANIME;
+                            pProcessedData->emplace_back(cmd);
+
+                            Token rg = tokens[idx];
+                            rg.kind = TOKEN_NUMBER;
+                            rg.line = tokens[idx].line;
+                            rg.source = tokens[idx].source;
+                            rg.advance = 1;
+                            if (!CalcConvertConst(tokens, pProcessedData, idx, KEY_TEXINIT, const_map, rg.number)) throw 3;
+                            else {
+                                std::vector<Token> frames;
+
+
+                                Token cnt;
+                                cnt.kind = TOKEN_INCOUNT;
+                                cnt.number = 0;
+
+                                Token fm;
+                                fm.kind = TOKEN_NUMBER;
+                                fm.number = 0;
+                                fm.line = tokens[idx].line;
+                                fm.source = tokens[idx].source;
+                                fm.advance = 1;
+
+                                frames.emplace_back(rg);
+                                while (idx < size && (tokens[idx].kind == TOKEN_COMMA)) {
+                                    Token f = tokens[idx];
+                                    f.kind = TOKEN_NUMBER;
+                                    f.line = tokens[idx].line;
+                                    f.source = tokens[idx].source;
+                                    f.advance = 1;
+                                    idx++;
+                                    if (!CalcConvertConst(tokens, pProcessedData, idx, KEY_TEXINIT, const_map, f.number)) throw 3;
+                                    frames.emplace_back(f);
+                                    fm.number++;
+                                }
+                                frames.insert(frames.begin() + 1, fm);
+                                cnt.number = frames.size();
+                                pProcessedData->emplace_back(cnt);
+                                pProcessedData->insert(pProcessedData->end(), frames.begin(), frames.end());
+                            }
+                        }
+                        else throw 0;
                     }
                     else if (!ProcessCommonCmdData(tokens, pProcessedData, const_map, (SCL_INSTRUCTION)t.number, last_cmd, KEY_TEXINIT, idx)) throw 0;
                 }
@@ -847,7 +905,7 @@ bool ProcessEnemyBlock(
             case TOKEN_COMMAND: {
                 bool found_command = false;
                 for (auto c : g_EnemyCheck) if (c == t.number) found_command = true;
-                for (auto c : g_ControlFlow) if (c == t.number) found_command = true;
+                if(!found_command) for (auto c : g_ControlFlow) if (c == t.number) found_command = true;
                 if (found_command) {
                     if(!ProcessCommonCmdData(tokens, pProcessedData, const_map, (SCL_INSTRUCTION)t.number, last_cmd, KEY_ENEMY, idx)) throw 0;
                 }
@@ -865,7 +923,7 @@ bool ProcessEnemyBlock(
             //Const for local constants
             case TOKEN_KEYWORD:
                 if (t.number == KEY_IF || t.number == KEY_WHILE || t.number == KEY_LOOP) {
-                    if(!ProcessConditionOrLoopBlock(tokens, pProcessedData, const_map, KEY_ENEMY, (KEYWORD_KIND)t.number, idx)) throw 0;
+                    if(!ProcessConditionOrLoopBlock(tokens, pProcessedData, const_map, KEY_ENEMY, (KEYWORD_KIND)t.number, ProcessEnemyBlock,idx)) throw 0;
                 }
                 else {
                     switch (t.number) {
@@ -949,7 +1007,7 @@ bool ProcessTSetBlock(
             case TOKEN_COMMAND: {
                 bool found_command = false;
                 for (auto c : g_TSetCheck) if (c == t.number) found_command = true;
-                for (auto c : g_ControlFlow) if (c == t.number) found_command = true;
+                if(!found_command)for (auto c : g_ControlFlow) if (c == t.number) found_command = true;
                 if (found_command) {
                     if (!ProcessCommonCmdData(tokens, pProcessedData, const_map, (SCL_INSTRUCTION)t.number, last_cmd, KEY_TSET, idx)) throw 0;
                 }
@@ -967,7 +1025,7 @@ bool ProcessTSetBlock(
                                  //Const for local constants
             case TOKEN_KEYWORD:
                 if (t.number == KEY_IF || t.number == KEY_WHILE || t.number == KEY_LOOP) {
-                    if (!ProcessConditionOrLoopBlock(tokens, pProcessedData, const_map, KEY_TSET, (KEYWORD_KIND)t.number, idx)) throw 0;
+                    if (!ProcessConditionOrLoopBlock(tokens, pProcessedData, const_map, KEY_TSET, (KEYWORD_KIND)t.number, ProcessTSetBlock, idx)) throw 0;
                 }
                 else {
                     switch (t.number) {
@@ -1044,7 +1102,7 @@ bool ProcessExAnmBlock(
             case TOKEN_COMMAND: {
                 bool found_command = false;
                 for (auto c : g_ExAnmCheck) if (c == t.number) found_command = true;
-                for (auto c : g_ControlFlow) if (c == t.number) found_command = true;
+                if(!found_command) for (auto c : g_ControlFlow) if (c == t.number) found_command = true;
                 if (found_command) {
                     if (!ProcessCommonCmdData(tokens, pProcessedData, const_map, (SCL_INSTRUCTION)t.number, last_cmd, KEY_EXANM, idx)) throw 0;
                 }
@@ -1062,7 +1120,7 @@ bool ProcessExAnmBlock(
                                  //Const for local constants
             case TOKEN_KEYWORD:
                 if (t.number == KEY_IF || t.number == KEY_WHILE || t.number == KEY_LOOP) {
-                    if (!ProcessConditionOrLoopBlock(tokens, pProcessedData, const_map, KEY_EXANM, (KEYWORD_KIND)t.number, idx)) throw 0;
+                    if (!ProcessConditionOrLoopBlock(tokens, pProcessedData, const_map, KEY_EXANM, (KEYWORD_KIND)t.number, ProcessExAnmBlock, idx)) throw 0;
                 }
                 else {
                     switch (t.number) {
@@ -1400,7 +1458,7 @@ bool PopulateAddresses(
                     const string& str = c.param[0].stringdata;
                     if (chunk.label_data.find(str) != chunk.label_data.end())
                         c.param[0].ads = chunk.label_data[str];
-                    else throw SourceInfo{c.source, str, c.line};
+                    else throw SourceInfo{"", str, c.line};
                 }break;
                 case SCR_CALL:
                 case SCR_ESET:
@@ -1411,7 +1469,7 @@ bool PopulateAddresses(
                     const string& str = c.param[0].stringdata;
                     if (pProcData.find(str) != pProcData.end())
                         c.param[0].ads = pProcData[str].ads;
-                    else throw SourceInfo{ c.source, str, c.line };
+                    else throw SourceInfo{ "", str, c.line};
                 }break;
                 case SCR_CHILD:
                 case SCR_CHGTASK:
@@ -1419,7 +1477,7 @@ bool PopulateAddresses(
                     const string& str = c.param[1].stringdata;
                     if (pProcData.find(str) != pProcData.end())
                         c.param[1].ads = pProcData[str].ads;
-                    else throw SourceInfo{ c.source, str, c.line };
+                    else throw SourceInfo{ "", str, c.line};
                 }break;
                 case SCR_SET:
                 case SCR_ATK:
@@ -1427,14 +1485,14 @@ bool PopulateAddresses(
                     const string& str = c.param[2].stringdata;
                     if (pProcData.find(str) != pProcData.end())
                         c.param[2].ads = pProcData[str].ads;
-                    else throw SourceInfo{ c.source, str, c.line };
+                    else throw SourceInfo{ "", str, c.line};
                 }break;
                 case SCR_ATK2:
                 {
                     const string& str = c.param[3].stringdata;
                     if (pProcData.find(str) != pProcData.end())
                         c.param[3].ads = pProcData[str].ads;
-                    else throw SourceInfo{ c.source, str, c.line };
+                    else throw SourceInfo{ "", str, c.line};
                 }break;
                 }
             }

@@ -228,6 +228,7 @@ bool Calc2Token(
                     if (receiver == -1) {
                         receiver = (nums.end() - 1)->number;
                         nums.pop_back();
+                        nnums--;
                     }
                     else throw t;
                 }
@@ -436,9 +437,49 @@ bool PresolveTokens(std::deque<Token>& toks) {
                 case SCR_MIN:
                 case SCR_MAX:
                 case SCR_ATAN: {
-                    res.push_back(t);
+                    if (num >= 2) {
+                        Token p1 = stk.top();
+                        stk.pop();
+                        switch (t.number) {
+                        case SCR_SINL: stk.top().number = sin((t.number % 256) / 256.0 * 6.2831852) * 256 * p1.number; break;
+                        case SCR_COSL: stk.top().number = cos((t.number % 256) / 256.0 * 6.2831852) * 256 * p1.number; break;
+                        case SCR_ATAN: stk.top().number = p1.number; break;
+                        case SCR_MIN: stk.top().number = (stk.top().number < p1.number) ? stk.top().number :p1.number; break;
+                        case SCR_MAX: stk.top().number = (stk.top().number > p1.number) ? stk.top().number : p1.number; break;
+                        }
+                        num--;
+                    }
+                    else {
+                        if (num > 1) {
+                            Token p1 = stk.top();
+                            stk.pop();
+                            res.emplace_back(stk.top());
+                            res.emplace_back(p1);
+                            stk.pop();
+                            num-=2;
+                        }
+                        else if (num > 0) {
+                            res.emplace_back(stk.top());
+                            stk.pop();
+                            num--;
+                        }
+                        res.push_back(t);
+                    }
                 }break;
                 case SCR_RND:
+                    if (num > 1) {
+                        Token p1 = stk.top();
+                        stk.pop();
+                        res.emplace_back(stk.top());
+                        res.emplace_back(p1);
+                        stk.pop();
+                        num -= 2;
+                    }
+                    else if (num > 0) {
+                        res.emplace_back(stk.top());
+                        stk.pop();
+                        num--;
+                    }
                     res.push_back(t);
                     break;
                 case SCR_NEG:
@@ -493,8 +534,9 @@ bool Token2ProcessedData(std::vector<Token>* to, const std::deque<Token>& toks, 
         Token num;
         num.kind = TOKEN_NUMBER;
         num.number = toks[0].number;
-        num.advance = 1;
+        num.advance = 4;
         to->emplace_back(num);
+        return true;
     }
 
     size_t size = toks.size();
@@ -513,7 +555,7 @@ bool Token2ProcessedData(std::vector<Token>* to, const std::deque<Token>& toks, 
             Token n = tok;
             n.advance = 4;
 
-            printf("Num: %d\n", n.number);
+            //printf("Num: %d\n", n.number);
             to->emplace_back(cmd);
             to->emplace_back(cnt);
             to->emplace_back(n);
@@ -532,7 +574,7 @@ bool Token2ProcessedData(std::vector<Token>* to, const std::deque<Token>& toks, 
             n.kind = TOKEN_NUMBER;
             n.advance = 1;
 
-            printf("Reg: %s\n", n.pStr.c_str());
+            //printf("Reg: %s\n", n.pStr.c_str());
             to->emplace_back(cmd);
             to->emplace_back(cnt);
             to->emplace_back(n);
@@ -548,38 +590,38 @@ bool Token2ProcessedData(std::vector<Token>* to, const std::deque<Token>& toks, 
             
             switch (tok.number) {
             case AS_ADD: cmd.number = SCR_ADD;
-                printf("+\n");
+                //printf("+\n");
                 break;
             case AS_SUB: cmd.number = SCR_SUB;
-                printf("-\n");
+                //printf("-\n");
                 break;
             case AS_MUL: cmd.number = SCR_MUL;
-                printf("*\n");
+                //printf("*\n");
                 break;
             case AS_DIV: cmd.number = SCR_DIV;
-                printf("/\n");
+                //printf("/\n");
                 break;
             case AS_MOD: cmd.number = SCR_MOD;
-                printf("%\n");
+                //printf("%\n");
                 break;
 
             case AS_EQU: cmd.number = SCR_EQUAL;
-                printf("==\n");
+                //printf("==\n");
                 break;
             case AS_NOTEQU: cmd.number = SCR_NOTEQ;
-                printf("!=\n");
+                //printf("!=\n");
                 break;
             case AS_LESS: cmd.number = SCR_LESS;
-                printf("<\n");
+                //printf("<\n");
                 break;
             case AS_LESSEQ: cmd.number = SCR_LESSEQ;
-                printf("<=\n");
+                //printf("<=\n");
                 break;
             case AS_GREAT: cmd.number = SCR_ABOVE;
-                printf(">\n");
+                //printf(">\n");
                 break;
             case AS_GREATEQ: cmd.number = SCR_ABOVEEQ;
-                printf(">=\n");
+                //printf(">=\n");
                 break;
             }
 
@@ -594,25 +636,25 @@ bool Token2ProcessedData(std::vector<Token>* to, const std::deque<Token>& toks, 
             cnt.number = 0;
             switch (cmd.number) {
             case SCR_SINL:
-                printf("sinl\n");
+                //printf("sinl\n");
                 break;
             case SCR_COSL:
-                printf("cosl\n");
+                //printf("cosl\n");
                 break;
             case SCR_MIN:
-                printf("min\n");
+                //printf("min\n");
                 break;
             case SCR_MAX:
-                printf("max\n");
+                //printf("max\n");
                 break;
             case SCR_ATAN:
-                printf("atan\n");
+                //printf("atan\n");
                 break;
             case SCR_RND:
-                printf("rnd\n");
+                //printf("rnd\n");
                 break;
             case SCR_NEG:
-                printf("neg\n");
+                //printf("neg\n");
                 break;
             }
             to->emplace_back(cmd);

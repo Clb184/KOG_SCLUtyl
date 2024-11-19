@@ -147,7 +147,11 @@ static std::map<const std::string, int> g_EnemyRegs = {
 	{"gr7", 13},
 	{"flag", 14},
 	{"dir", 15},
+	{"xmid", 16},
+	{"px", 17},
+	{"py", 18},
 	{"alpha", 19},
+	{"nchild", 20},
 };
 
 //Registers used on TCL (tama(bullet) control language)
@@ -177,6 +181,7 @@ static std::map<const std::string, int> g_AtkRegs = {
 	{"gr6", 22},
 	{"gr7", 23},
 	{"parentdir", 24},
+	{"parent", 25},
 	{"param", 26},
 };
 
@@ -403,6 +408,7 @@ bool ProcessConditionOrLoopBlock(
 	constant_map& const_map,
 	KEYWORD_KIND proc_kind,
 	KEYWORD_KIND type,
+	bool (*BlockProcessFn)(std::vector<Token>&, std::vector<Token>*, constant_map&, size_t&, int),
 	size_t& idx
 );
 

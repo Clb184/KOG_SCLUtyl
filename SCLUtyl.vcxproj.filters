@@ -21,6 +21,12 @@
     <ClCompile Include="SCLDump.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="SCLCompile.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Calc2Token.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="SCLData.h">
@@ -31,6 +37,9 @@
     </ClInclude>
     <ClInclude Include="SCLCompile.h">
       <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Calc2Token.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

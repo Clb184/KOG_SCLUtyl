@@ -369,3 +369,5 @@ FodyWeavers.xsd
 #Also avoid bat scripts and executable for the repo
 *.bat
 *.exe
+#also the VS Code workspace
+*.code-workspace
